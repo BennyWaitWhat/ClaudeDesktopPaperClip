@@ -23,6 +23,17 @@ Each run is Paperclip's own Claude adapter, unchanged, minus four things:
 4. **Paperclip-only tools.** Paperclip passes its run tools as the only MCP servers
    (`--strict-mcp-config`). Here they load next to your own MCP servers and connectors.
 
+## Claude Desktop sees the agents
+
+- Each agent session is named `<card> · <agent>` (for example `CAR-15 · Chief of Staff`), or just the agent
+  for a run with no card. Paperclip keeps one session per agent per card.
+- When a run starts a new conversation, it is handed to Claude Desktop with Claude Code's own
+  `claude --desktop --resume <id>`. It shows in the sidebar under the folder it ran in, with that name, and you
+  can open it and keep going there with everything Claude Desktop has.
+- A run waits while you are mid-turn in that agent's session in Claude Desktop, so the two never type at once.
+- Known gap: if the session is open in Claude Desktop while a run adds to it, the open window does not show the
+  run's new turn until the session is reopened.
+
 ## Org folders
 
 Paperclip already runs each agent in a folder: the project's workspace folder, or the agent's `cwd`. Give
@@ -60,8 +71,8 @@ keeps the old code until then.
 
 ## Limits
 
-- Windows first: finding Claude Desktop's Claude Code is Windows-only; elsewhere runs use `claude` on PATH.
+- Windows first: finding Claude Desktop's Claude Code and handing sessions to it are Windows-only; elsewhere
+  runs use `claude` on PATH and stay out of the sidebar.
 - Local runs only. Remote and sandbox execution targets are not supported.
-- Agent runs are Claude Code sessions in your normal Claude folder, not Claude Desktop sidebar sessions.
-  Follow them in Paperclip's run view, or continue one with `claude --resume <session id>` in the agent's
-  folder.
+- Command-line Claude must be signed in to the same Claude organization as Claude Desktop (`claude auth
+  status`), or a conversation moved into Claude Desktop cannot reuse its earlier thinking.

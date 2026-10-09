@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createServerAdapter, desktopClaudeCode, findPaperclipPackage, nativeConfig, THROWAWAY_ENV, writeRunMcpConfig } from '../index.mjs';
+import { createServerAdapter, desktopClaudeCode, findPaperclipPackage, liveSessions, nativeConfig, openInDesktop, sessionTitle, THROWAWAY_ENV, writeRunMcpConfig } from '../index.mjs';
 
 test("finds Paperclip's own Claude adapter", () => {
   const dir = findPaperclipPackage('adapter-claude-local');
@@ -25,8 +25,37 @@ test('picks the newest Claude Code version Claude Desktop installed', { skip: pr
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, 'claude.exe'), '');
   }
-  assert.equal(desktopClaudeCode({ APPDATA: appdata }).version, '2.1.293');
+  assert.equal(desktopClaudeCode({ APPDATA: appdata, LOCALAPPDATA: appdata }).version, '2.1.293');
   fs.rmSync(appdata, { recursive: true, force: true });
+});
+
+test("also finds it inside the packaged app's own folder", { skip: process.platform !== 'win32' }, () => {
+  const local = fs.mkdtempSync(path.join(os.tmpdir(), 'native-local-'));
+  const dir = path.join(local, 'Packages', 'Claude_test123', 'LocalCache', 'Roaming', 'Claude', 'claude-code', '9.9.9', 'zzz');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'claude.exe'), '');
+  const found = desktopClaudeCode({ APPDATA: path.join(local, 'none'), LOCALAPPDATA: local });
+  assert.equal(found.version, '9.9.9');
+  fs.rmSync(local, { recursive: true, force: true });
+});
+
+test('sessions are titled "<card> · <agent>"', () => {
+  assert.equal(sessionTitle({ agent: { name: 'Chief of Staff' }, context: { paperclipWake: { issue: { identifier: 'CAR-15' } } } }), 'CAR-15 · Chief of Staff');
+  assert.equal(sessionTitle({ agent: { name: 'Steward' }, context: {} }), 'Steward');
+  assert.equal(nativeConfig({}, { title: 'CAR-1 · X', mcpConfigPath: 'm.json' }).extraArgs.join(' '), '--name CAR-1 · X --mcp-config m.json');
+});
+
+test("reads Claude Code's live-session registry, skipping dead entries", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'native-reg-'));
+  fs.writeFileSync(path.join(dir, `${process.pid}.json`), JSON.stringify({ pid: process.pid, sessionId: 'aaaa', status: 'busy', kind: 'interactive' }));
+  fs.writeFileSync(path.join(dir, '999999.json'), JSON.stringify({ pid: 999999, sessionId: 'bbbb', status: 'idle', kind: 'interactive' }));
+  fs.writeFileSync(path.join(dir, `${process.pid}.abc.key`), 'secret');
+  assert.deepEqual(liveSessions(dir).map((s) => [s.sessionId, s.status]), [['aaaa', 'busy']]);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('opens only real session ids in Claude Desktop', async () => {
+  assert.equal((await openInDesktop("x'; Remove-Item C:\\ -Recurse", 'C:/')).ok, false);
 });
 
 test('a managed run config becomes a native one', () => {
