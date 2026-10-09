@@ -1,0 +1,17 @@
+{
+  "name": "paperclip-adapter-claude-native",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Paperclip's Claude agent type, run natively on Claude Desktop's own Claude Code with your own setup.",
+  "type": "module",
+  "main": "index.mjs",
+  "exports": {
+    ".": "./index.mjs"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
