@@ -87,6 +87,11 @@ and cancels their runs; `PATCH {status: "active"}` brings it back.
   without a real run id an agent cannot check out a card, release it, create or answer question cards, or
   change its own `in_progress` card (401). It can still read, comment, create cards and change cards that are
   not its own `in_progress` ones.
+- **Writing on cards needs a run tied to a card** (`S/services/cross-issue-influence-limit.ts`): an agent's
+  comment or update is refused (403 `cross_issue_influence_run_context_required`) unless its run's context has an
+  `issueId`; it may then write freely on that card and on up to 20 others per run (enforced since 2026-08-11).
+  Checkout and card creation don't need it (seen).
+- **A wake folds into the agent's run that is still going** (seen: two back-to-back wakes returned the same run).
 - **After a run** (~26351): a succeeded run woken by an assignment with no comment carrying its run id gets one
   `status_only` retry; a card left todo/in_progress with no wait gets up to two "disposition repair" wakes,
   then escalation.
@@ -111,7 +116,9 @@ and cancels their runs; `PATCH {status: "active"}` brings it back.
   `resolverPolicy: "human_only"`.
 - Documents (`PUT /api/issues/:id/documents/:key` with a base revision) and work products (PR, branch, preview,
   artifact...).
-- Reassigning a card cancels the old assignee's active run.
+- Reassigning a card cancels the old assignee's active run, and a queued run on a card whose assignee changed is
+  cancelled before it starts (seen).
+- Creating a card with the title of an open card returned that existing card (seen); give new cards distinct titles.
 
 ## 5. Routines (recurring jobs)
 
@@ -148,19 +155,31 @@ and cancels their runs; `PATCH {status: "active"}` brings it back.
 
 ## What this means for the Desktop version
 
-1. **Each Desktop turn needs a Paperclip run around it.** That is the only way a turn shows as a run (log,
-   tokens, cost) and the only way the agent gets the run id it needs to check out and finish cards. A run only
-   exists when Paperclip runs the adapter, so our `claude_local` adapter becomes the bridge: it does not start
-   Claude, it ties the run to the agent's Desktop turn, streams that turn into the run log and reports its
-   usage as `subscription_included`.
-2. **`wakeOnDemand` stays on for Claude agents.** Turning it off would also refuse the wake that opens a
-   Desktop turn's run.
-3. **Paperclip's own wakes (assignment, comment, recovery) still arrive at the adapter.** They must neither
-   start work nor end empty: an empty run brings retries, repair wakes and finally a blocked card (what LEM-1
-   showed). The adapter keeps such a run open as "waiting for this agent in Claude Desktop" until the agent's
-   next Desktop turn, which then fills it; an open run also keeps the stranded-work sweep away, and the silent
-   watchdog needs a snooze or an occasional log line.
-4. **Plugins don't hear about hires or instruction edits.** Setting up a new agent's Desktop conversation, and
-   following instruction edits, needs a check on a timer (a plugin job), not an event.
-5. **Recurring jobs**: the Desktop scheduled task can call `POST /api/routines/:id/run` on the paused Paperclip
+Tested live on 2026-10-10 with `scripts/desktop-turn-probe.mjs` (19 checks, no model calls, throwaway agents):
+
+1. **Each Desktop turn is a Paperclip run, opened from Desktop.** The org folder's UserPromptSubmit hook has the
+   agent wake itself (its own lasting key, reason `desktop_turn`); Paperclip answers at once with the run id, and
+   the turn gets it as context. Our `claude_local` adapter never starts Claude for such a run: it streams the
+   turn from the conversation's transcript into the run log and ends at the turn's Stop, reporting the tokens as
+   `subscription_included` (cost 0). Run length is turn length, so the silent watchdog has nothing to flag. Seen:
+   the run page shows the turn, its tokens, and the cards list it.
+2. **A run is tied to the card the turn is about**, because only such a run may comment on or update cards. A
+   turn whose message names a card (a hand-off: "please take LEM-8") opens its run on that card; an agent that
+   takes up a card partway runs `hooks/paperclip-card.mjs <CARD>`, which ends the run so far and opens one on
+   that card for the rest of the turn. A turn about no card is a plain conversation: a run with no card.
+3. **A new turn waits (about half a second) for the previous run to close**, or Paperclip folds the new wake into
+   it.
+4. **The agent's Paperclip AI connection is not needed** for any of this (seen: an agent with none records its
+   turns). Paperclip only insists on one in the setup wizard, for the first agent.
+5. **`wakeOnDemand` stays on for Claude agents**: turning it off also refuses the wake a Desktop turn opens.
+6. **Cards waiting for a Desktop agent sit in backlog**: a backlog assignment wakes nothing and the stranded-work
+   sweep only looks at todo, in_progress and in_review. A turn that takes a card ends with it done, in_review
+   (with a reviewer), blocked (with a blocker or a question), or back in backlog, never todo or in_progress.
+7. **Plugins don't hear about hires or instruction edits.** Setting up a new agent's Desktop conversation and
+   following instruction edits needs a check on a timer (a plugin job).
+8. **Recurring jobs**: the Desktop scheduled task can call `POST /api/routines/:id/run` on the paused Paperclip
    routine, so Paperclip's history shows every run and its card.
+
+Still open: wakes Paperclip starts by itself for a Claude agent (a card assigned as todo, a comment written in
+Paperclip, an answered question card, recovery). The adapter gets them; what it does with them waits on Benny's
+answer to the grill question about things he does in Paperclip.

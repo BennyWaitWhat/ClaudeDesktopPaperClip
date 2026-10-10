@@ -35,6 +35,9 @@ const sh = (v) => `'${String(v).replace(/'/g, `'\\''`)}'`;
 const exports = [
   ['PAPERCLIP_API_URL', api], ['PAPERCLIP_API_KEY', key.token], ['PAPERCLIP_AGENT_ID', agentId], ['PAPERCLIP_COMPANY_ID', companyId],
   ['AGENT_HOME', home && fs.existsSync(home) ? home.replace(/\\/g, '/') : ''],
+  // For hooks/paperclip-card.mjs, which moves the rest of a turn to a card's own run.
+  ['PAPERCLIP_INSTANCE_ROOT', instance ? instance.replace(/\\/g, '/') : ''],
+  ['CLAUDE_DESKTOP_SESSION_ID', input.session_id ?? ''], ['CLAUDE_DESKTOP_TRANSCRIPT', input.transcript_path ? input.transcript_path.replace(/\\/g, '/') : ''],
 ].filter(([, v]) => v).map(([k, v]) => `export ${k}=${sh(v)}`);
 if (process.env.CLAUDE_ENV_FILE) fs.writeFileSync(process.env.CLAUDE_ENV_FILE, `${exports.join('\n')}\n`, { mode: 0o600 });
 

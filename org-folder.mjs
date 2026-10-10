@@ -1,25 +1,28 @@
-// An org folder as Claude Code sees it, through its own .claude/settings.json: a SessionStart hook
-// (hooks/desktop-session.mjs) gives every conversation there that runs as one of the org's agents that agent's
-// Paperclip access, and makes a plain new conversation the org's Chief of Staff. Claude Desktop loads project
-// settings, so this is what talking to the org in Desktop means.
+// An org folder as Claude Code sees it, through its own .claude/settings.json:
+// - SessionStart (hooks/desktop-session.mjs): every conversation there that runs as one of the org's agents gets
+//   that agent's Paperclip access, and a plain new conversation is the org's Chief of Staff;
+// - UserPromptSubmit and Stop (hooks/desktop-turn.mjs): each turn such a conversation takes is a Paperclip run.
+// Claude Desktop loads project settings, so this is what talking to the org in Desktop means.
 //
 // The folder sets no default agent on purpose: Claude Code prefers a folder default over the agent a conversation
-// started with until that conversation has its first reply, and a card's conversation opens in Claude Desktop
-// before its first reply.
+// started with until that conversation has its first reply.
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const SESSION_HOOK = fileURLToPath(new URL('./hooks/desktop-session.mjs', import.meta.url));
+export const TURN_HOOK = fileURLToPath(new URL('./hooks/desktop-turn.mjs', import.meta.url));
+const OURS = { SessionStart: SESSION_HOOK, UserPromptSubmit: TURN_HOOK, Stop: TURN_HOOK };
 const q = (p) => `"${String(p).replace(/\\/g, '/')}"`;
-const isOurHook = (h) => typeof h?.command === 'string' && h.command.includes('desktop-session.mjs');
+const isOurHook = (h) => typeof h?.command === 'string' && /desktop-(session|turn)\.mjs/.test(h.command);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** The hook's command line: the Paperclip it asks for keys, the instance folder it keeps them in, the Chief of Staff. */
-export function sessionHookCommand({ node = process.execPath, apiUrl, instanceRoot, chiefId = null }) {
-  return [q(node), q(SESSION_HOOK), '--api', q(apiUrl), '--instance', q(instanceRoot), ...(chiefId ? ['--chief', chiefId] : [])].join(' ');
+/** A hook's command line: the script, the Paperclip it talks to, the instance folder it keeps keys in, the Chief of Staff. */
+export function hookCommand(script, { node = process.execPath, apiUrl, instanceRoot, chiefId = null }) {
+  return [q(node), q(script), '--api', q(apiUrl), '--instance', q(instanceRoot), ...(chiefId ? ['--chief', chiefId] : [])].join(' ');
 }
+export const sessionHookCommand = (options) => hookCommand(SESSION_HOOK, options);
 
 async function readSettings(folder) {
   const file = path.join(folder, '.claude', 'settings.json');
@@ -28,9 +31,9 @@ async function readSettings(folder) {
   try { return { file, settings: JSON.parse(raw) }; } catch { return { file, settings: null }; }
 }
 
-const ourCommands = (settings) => (settings?.hooks?.SessionStart ?? []).flatMap((g) => g?.hooks ?? []).filter(isOurHook).map((h) => h.command);
+const ourCommands = (settings) => Object.keys(OURS).flatMap((event) => (settings?.hooks?.[event] ?? []).flatMap((g) => g?.hooks ?? []).filter(isOurHook).map((h) => h.command));
 
-/** The org's Chief of Staff as the folder's hook names it, or null. */
+/** The org's Chief of Staff as the folder's hooks name it, or null. */
 export async function chiefOf(folder) {
   const { settings } = await readSettings(folder);
   for (const command of ourCommands(settings)) {
@@ -40,15 +43,15 @@ export async function chiefOf(folder) {
   return null;
 }
 
-/** True when the folder's settings run the session hook, so Claude Desktop's copies there get Paperclip access. */
+/** True when the folder's settings run our hooks, so Claude Desktop's conversations there are the org's agents. */
 export async function hasSessionHook(folder) {
   return ourCommands((await readSettings(folder)).settings).length > 0;
 }
 
 /**
- * Give a plain folder the session hook, replacing an older copy of it and keeping the Chief of Staff it names unless
- * `chiefId` gives one. The rest of the file stays as it is; a git repo, or a settings file that is not valid JSON,
- * is left alone. Returns { file, changed, reason? }.
+ * Give a plain folder our hooks (SessionStart, UserPromptSubmit, Stop), replacing older copies of them and keeping the
+ * Chief of Staff they name unless `chiefId` gives one. The rest of the file stays as it is; a git repo, or a
+ * settings file that is not valid JSON, is left alone. Returns { file, changed, reason? }.
  */
 export async function ensureOrgSettings(folder, { node, apiUrl, instanceRoot, chiefId = null }) {
   const file = path.join(folder, '.claude', 'settings.json');
@@ -56,11 +59,14 @@ export async function ensureOrgSettings(folder, { node, apiUrl, instanceRoot, ch
   const { settings } = await readSettings(folder);
   if (!settings) return { file, changed: false, reason: 'its settings.json is not valid JSON' };
   const before = JSON.stringify(settings);
-  const command = sessionHookCommand({ node, apiUrl, instanceRoot, chiefId: chiefId ?? (await chiefOf(folder)) });
-  const hooks = settings.hooks && typeof settings.hooks === 'object' ? settings.hooks : {};
-  const groups = Array.isArray(hooks.SessionStart) ? hooks.SessionStart : [];
-  const others = groups.map((g) => ({ ...g, hooks: (g.hooks ?? []).filter((h) => !isOurHook(h)) })).filter((g) => g.hooks.length > 0);
-  settings.hooks = { ...hooks, SessionStart: [...others, { hooks: [{ type: 'command', command }] }] };
+  const chief = chiefId ?? (await chiefOf(folder));
+  const hooks = settings.hooks && typeof settings.hooks === 'object' ? { ...settings.hooks } : {};
+  for (const [event, script] of Object.entries(OURS)) {
+    const groups = Array.isArray(hooks[event]) ? hooks[event] : [];
+    const others = groups.map((g) => ({ ...g, hooks: (g.hooks ?? []).filter((h) => !isOurHook(h)) })).filter((g) => g.hooks.length > 0);
+    hooks[event] = [...others, { hooks: [{ type: 'command', command: hookCommand(script, { node, apiUrl, instanceRoot, chiefId: chief }) }] }];
+  }
+  settings.hooks = hooks;
   if (JSON.stringify(settings) === before) return { file, changed: false };
   await fsp.mkdir(path.dirname(file), { recursive: true });
   await fsp.writeFile(file, `${JSON.stringify(settings, null, 2)}\n`);

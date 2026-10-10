@@ -6,9 +6,15 @@
 // happens, and ends with the turn (its Stop hook, or the conversation's next turn), reporting the turn's tokens as
 // subscription use. So each Desktop turn is a Paperclip run from start to end, and the turn has a real run id for
 // the Paperclip calls that need one (checking out a card, question cards).
+//
+// Paperclip lets a run comment on or update cards only when the run is tied to a card (its own card freely, up to
+// 20 others). So a turn whose message names a card (a hand-off: "please take LEM-8") opens its run on that card,
+// and an agent that takes up a card partway through a turn moves the rest of the turn to that card's own run
+// (hooks/paperclip-card.mjs). A turn that names no card is a plain conversation: a run with no card.
 import fs from 'node:fs';
 import path from 'node:path';
 import { turnResult } from './open-copy.mjs';
+import { paperclipCall } from './paperclip-access.mjs';
 
 export const DESKTOP_TURN_REASON = 'desktop_turn';
 export const turnsDir = (instanceRoot) => path.join(instanceRoot, 'claude-desktop', 'turns');
@@ -19,6 +25,71 @@ export const sessionFile = (dir, sessionId) => path.join(dir, `session-${session
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const readJson = (file) => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; } };
 const list = (dir) => { try { return fs.readdirSync(dir); } catch { return []; } };
+const writePrivate = (file, data) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(data), { mode: 0o600 }); };
+const FINISHED = new Set(['succeeded', 'failed', 'cancelled', 'timed_out', 'interrupted']);
+const CARD = /\b[A-Z][A-Z0-9]{1,9}-\d{1,7}\b/g;
+
+/** The first card `text` names that Paperclip knows (LEM-8, CAR-12...): { id, identifier }, or null. */
+export async function namedCard({ api, token, text }) {
+  const seen = new Set();
+  for (const [identifier] of String(text ?? '').matchAll(CARD)) {
+    if (seen.has(identifier) || seen.size >= 3) continue;
+    seen.add(identifier);
+    const found = await paperclipCall(api, `/api/issues/${identifier}`, { token });
+    if (found.status === 200 && found.json?.id) return { id: found.json.id, identifier: found.json.identifier ?? identifier };
+  }
+  return null;
+}
+
+/**
+ * Remove files no run will read: a run's own files go when it ends, but a run Paperclip cancels before the adapter
+ * starts never reads its turn file. Done markers go after an hour, turn files after a day.
+ */
+export function sweepStale(dir, now = Date.now()) {
+  for (const f of list(dir)) {
+    const file = path.join(dir, f);
+    const age = (() => { try { return now - fs.statSync(file).mtimeMs; } catch { return 0; } })();
+    if ((f.endsWith('.done') && age > 60 * 60_000) || (f.endsWith('.json') && age > 24 * 60 * 60_000)) fs.rmSync(file, { force: true });
+  }
+}
+
+/** End the conversation's current run (its turn, or the part of it so far). */
+export function endTurnRun(dir, sessionId) {
+  const runId = readJson(sessionFile(dir, sessionId))?.runId;
+  if (runId && fs.existsSync(turnFile(dir, runId))) writePrivate(doneFile(dir, runId), { at: new Date().toISOString() });
+  return runId ?? null;
+}
+
+/**
+ * Open a Paperclip run for this conversation's turn, or for the rest of it from `offset` (tied to `issueId` when
+ * given), and point the run at the transcript. The conversation's previous run is ended and waited for first:
+ * Paperclip folds a wake into the agent's run that is still going. Returns the run id, or null when Paperclip did not
+ * start a run (not answering, or the agent can't run now).
+ */
+export async function openTurnRun({ api, token, agentId, sessionId, transcript, cwd, dir, offset, issueId = null, waitMs = 5000 }) {
+  sweepStale(dir);
+  const previous = endTurnRun(dir, sessionId);
+  if (previous) {
+    for (const end = Date.now() + waitMs; Date.now() < end; await sleep(150)) {
+      const run = await paperclipCall(api, `/api/heartbeat-runs/${previous}`, { token });
+      if (run.status !== 200 || FINISHED.has(run.json?.status)) break;
+    }
+  }
+  const woke = await paperclipCall(api, `/api/agents/${agentId}/wakeup`, {
+    method: 'POST',
+    token,
+    body: {
+      source: 'on_demand', triggerDetail: 'manual', reason: DESKTOP_TURN_REASON,
+      ...(issueId ? { payload: { issueId } } : {}),
+      idempotencyKey: `desktop-turn:${sessionId}:${offset}${issueId ? `:${issueId}` : ''}`,
+    },
+  });
+  const runId = woke.status === 202 && typeof woke.json?.id === 'string' && woke.json?.agentId === agentId ? woke.json.id : null;
+  if (!runId || runId === previous) return null;
+  writePrivate(turnFile(dir, runId), { runId, agentId, sessionId, transcript, offset, cwd, issueId, startedAt: new Date().toISOString() });
+  writePrivate(sessionFile(dir, sessionId), { runId });
+  return runId;
+}
 
 /** Complete lines added to `file` since byte `offset`: { lines, offset }. A torn last line waits for the next read. */
 export function readNewLines(file, offset) {
