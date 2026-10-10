@@ -10,7 +10,7 @@
 //   node desktop-turn.mjs --api <Paperclip URL> --instance <Paperclip instance folder> [--chief <agent id>]
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { changedInstructions, endTurnRun, namedCard, openTurnRun, turnsDir } from '../desktop-turn.mjs';
+import { changedInstructions, endTurnRun, HELLO_ENV, namedCard, openTurnRun, turnsDir } from '../desktop-turn.mjs';
 import { agentKey, conversationAgent, hookArgs, hookInput, insidePaperclipRun, paperclipCall } from '../paperclip-access.mjs';
 import { inboxText, takeInbox } from '../paperclip-wakes.mjs';
 
@@ -33,7 +33,9 @@ const cwd = input.cwd || process.cwd();
 const who = conversationAgent({ cwd, transcriptPath: input.transcript_path, agentType: input.agent_type, chiefId });
 if (!who || !input.transcript_path) process.exit(0);
 
-const instructions = changedInstructions(dir, input.session_id, who.definition);
+// The hello that makes the conversation is setup: what waits for the agent waits for its first real turn.
+const hello = process.env[HELLO_ENV] === '1';
+const instructions = hello ? null : changedInstructions(dir, input.session_id, who.definition);
 
 let runId = null;
 let card = null;
@@ -61,7 +63,7 @@ const run = runId
   : `Paperclip opened no run for this turn (${key ? 'it refused the wake; is the agent paused?' : 'Paperclip is not answering'}), so the turn is not recorded there and Paperclip calls that need a run will fail.`;
 
 const context = [
-  inboxText(takeInbox(instance, who.agentId)),
+  hello ? '' : inboxText(takeInbox(instance, who.agentId)),
   instructions ? `Your instructions were edited in Paperclip since this conversation got them. From now on they are:\n\n${instructions}` : '',
   run,
 ].filter(Boolean).join('\n\n');

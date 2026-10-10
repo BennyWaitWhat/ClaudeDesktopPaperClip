@@ -16,17 +16,37 @@ export function addToInbox(instance, agentId, item) {
   fs.appendFileSync(file, `${JSON.stringify(item)}\n`, { mode: 0o600 });
 }
 
-/** Take everything in the agent's Desktop inbox (it is emptied). */
+/** Items about the same card become one: the first reason, parked if any was, every comment once. */
+function mergeByCard(items) {
+  const out = [];
+  const byCard = new Map();
+  for (const item of items) {
+    const id = item.card?.id;
+    const same = id ? byCard.get(id) : null;
+    if (!same) {
+      const copy = { ...item, comments: [...(item.comments ?? [])] };
+      out.push(copy);
+      if (id) byCard.set(id, copy);
+      continue;
+    }
+    same.parked = Boolean(same.parked || item.parked);
+    for (const c of item.comments ?? []) if (!same.comments.some((x) => (x.id && x.id === c.id) || (!x.id && x.body === c.body))) same.comments.push(c);
+  }
+  return out;
+}
+
+/** Take everything in the agent's Desktop inbox (it is emptied), one item per card. */
 export function takeInbox(instance, agentId) {
   const file = inboxFile(instance, agentId);
   const taking = `${file}.${process.pid}.${Date.now()}`;
   try { fs.renameSync(file, taking); } catch { return []; }
   const items = fs.readFileSync(taking, 'utf8').split('\n').filter(Boolean).flatMap((l) => { try { return [JSON.parse(l)]; } catch { return []; } });
   fs.rmSync(taking, { force: true });
-  return items;
+  return mergeByCard(items);
 }
 
 const WHY = {
+  issue_created: 'was made for you',
   issue_assigned: 'was given to you',
   issue_commented: 'has a new comment',
   issue_reopened_via_comment: 'was reopened with a comment',

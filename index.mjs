@@ -21,6 +21,7 @@ const desktop = await sibling('desktop.mjs');
 export const { desktopClaudeCode, findPaperclipPackage, windowsUserEnv } = desktop;
 const { DESKTOP_TURN_REASON, recordDesktopTurn, turnsDir } = await sibling('desktop-turn.mjs');
 const { absorbPaperclipWake } = await sibling('paperclip-wakes.mjs');
+const { isDesktopOrg } = await sibling('desktop-orgs.mjs');
 
 // What Paperclip's managed AI connection puts in a run's environment (its throwaway home and token).
 export const THROWAWAY_ENV = ['HOME', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'CODEX_HOME', 'GROK_HOME', 'CLAUDE_CONFIG_DIR', 'CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_AUTH_TOKEN'];
@@ -43,13 +44,24 @@ const paperclipPaths = await import(pathToFileURL(path.join(findPaperclipPackage
 const instanceRoot = () => paperclipPaths.resolvePaperclipInstanceRoot();
 const apiUrl = (ctx) => String(paperclipUtils.buildPaperclipEnv(ctx.agent).PAPERCLIP_API_URL).replace(/\/+$/, '');
 
-/** A run, with the two things it can do passed in (tests swap them). */
+// An org that has not moved to Claude Desktop yet (desktop-orgs.mjs): its agents' cards are left as they are.
+const NOT_MOVED = {
+  exitCode: 1, signal: null, timedOut: false,
+  errorMessage: "This org's Claude agents work from Claude Desktop, and the org has not moved there yet: switch it over (ClaudeDesktopPaperClip), or pause the claude_local override in Settings > Adapters to use Paperclip's own Claude type.",
+};
+
+/** A run, with what it can do passed in (tests swap them). */
 export function createExecute({
   recordTurn = (ctx) => recordDesktopTurn(ctx, { dir: turnsDir(instanceRoot()) }),
   absorbWake = (ctx) => absorbPaperclipWake(ctx, { instance: instanceRoot(), api: apiUrl(ctx) }),
+  movedToDesktop = (ctx) => isDesktopOrg(instanceRoot(), ctx.agent?.companyId),
 } = {}) {
   return async function execute(ctx) {
     if (ctx.context?.wakeReason === DESKTOP_TURN_REASON) return recordTurn(ctx);
+    if (!movedToDesktop(ctx)) {
+      await ctx.onLog('stderr', `[desktop] ${NOT_MOVED.errorMessage}\n`);
+      return NOT_MOVED;
+    }
     return absorbWake(ctx);
   };
 }

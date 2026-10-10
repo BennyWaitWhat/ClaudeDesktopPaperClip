@@ -88,17 +88,26 @@ test("the wizard's Claude check runs on your own setup, without the managed conn
   assert.equal(nativeConfig({}).command, 'claude');
 });
 
-test('a Desktop-turn wake is recorded; every other wake waits for Desktop; Claude is never started', async () => {
+test('a Desktop-turn wake is recorded; every other wake waits for Desktop in an org that moved there; Claude is never started', async () => {
   const seen = [];
   const execute = createExecute({
     recordTurn: async (ctx) => { seen.push(['record', ctx.runId]); return { exitCode: 0, summary: 'recorded' }; },
     absorbWake: async (ctx) => { seen.push(['absorb', ctx.runId]); return { exitCode: 0, summary: 'waiting' }; },
+    movedToDesktop: (ctx) => ctx.agent.companyId === 'moved',
   });
-  const base = { agent: { id: 'a1', name: 'Cashier' }, config: {}, onLog: async () => {} };
+  const logs = [];
+  const base = { agent: { id: 'a1', name: 'Cashier', companyId: 'moved' }, config: {}, onLog: async (_s, chunk) => { logs.push(chunk); } };
   assert.equal((await execute({ ...base, runId: 'r1', context: { wakeReason: 'desktop_turn' } })).summary, 'recorded');
   assert.equal((await execute({ ...base, runId: 'r2', context: { wakeReason: 'issue_assigned' } })).summary, 'waiting');
   assert.equal((await execute({ ...base, runId: 'r3', context: {} })).summary, 'waiting');
-  assert.deepEqual(seen, [['record', 'r1'], ['absorb', 'r2'], ['absorb', 'r3']]);
+
+  const older = { ...base, agent: { ...base.agent, companyId: 'not-yet' } };
+  const refused = await execute({ ...older, runId: 'r4', context: { wakeReason: 'issue_assigned' } });
+  assert.equal(refused.exitCode, 1);
+  assert.match(refused.errorMessage, /has not moved there yet/);
+  assert.match(logs.join(''), /has not moved there yet/, 'the run log says why');
+  assert.equal((await execute({ ...older, runId: 'r5', context: { wakeReason: 'desktop_turn' } })).summary, 'recorded');
+  assert.deepEqual(seen, [['record', 'r1'], ['absorb', 'r2'], ['absorb', 'r3'], ['record', 'r5']], "an older org's cards are left as they are");
 });
 
 test('stands in for the built-in Claude type with its own pieces', () => {

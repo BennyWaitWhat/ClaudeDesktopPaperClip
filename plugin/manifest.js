@@ -1,11 +1,12 @@
-// The Claude Desktop plugin: org folders and the "Open in Claude Desktop" button. The adapter in the folder
-// above (index.mjs) runs the agents; this plugin gives each org its folder and lets a card open its conversation.
+// The Claude Desktop plugin: org folders, each org's team in Claude Desktop (org-sync.mjs), and the "Open in
+// Claude Desktop" button. The adapter in the folder above (index.mjs) turns the agents' Desktop turns into runs.
+// Capabilities stay as they are: Paperclip refuses an upgrade that adds one.
 const manifest = {
   id: 'claude-desktop-paperclip',
   apiVersion: 1,
-  version: '0.1.0',
+  version: '0.2.0',
   displayName: 'Claude Desktop',
-  description: "Gives each new org its own folder when the org is created (on your Desktop unless you choose another place), runs the org's Claude agents there, and opens a card's agent conversation in Claude Desktop.",
+  description: "Gives each new org its own folder (on your Desktop unless you choose another place) and puts its Claude agents in Claude Desktop: one conversation each, ready the moment the agent exists. A card opens its agent's conversation in Claude Desktop.",
   author: 'ClaudeDesktopPaperClip',
   categories: ['workspace', 'ui'],
   capabilities: [

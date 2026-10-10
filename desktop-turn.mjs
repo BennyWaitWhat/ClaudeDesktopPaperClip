@@ -39,6 +39,9 @@ export function turnResult(entries) {
 }
 
 export const DESKTOP_TURN_REASON = 'desktop_turn';
+// Set on the hello turn that makes an agent's conversation (org-sync.mjs): setup, so the agent's inbox waits for its
+// first real turn.
+export const HELLO_ENV = 'CLAUDE_DESKTOP_PAPERCLIP_HELLO';
 export const turnsDir = (instanceRoot) => path.join(instanceRoot, 'claude-desktop', 'turns');
 export const turnFile = (dir, runId) => path.join(dir, `${runId}.json`);
 export const doneFile = (dir, runId) => path.join(dir, `${runId}.done`);

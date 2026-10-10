@@ -21,6 +21,7 @@ export function OrgFolderSettings() {
   const { data, loading, error, refresh } = usePluginData('org-folder', {});
   const setOrgFolder = usePluginAction('set-org-folder');
   const setNewOrgParent = usePluginAction('set-new-org-parent');
+  const setDesktop = usePluginAction('set-desktop');
   const [orgPath, setOrgPath] = useState('');
   const [parentPath, setParentPath] = useState('');
   const [busy, setBusy] = useState(null);
@@ -52,13 +53,24 @@ export function OrgFolderSettings() {
   const folder = data?.folder;
   const problems = folder?.configured && !folder.healthy ? (folder.problems ?? []).map((p) => p.message).join(' ') : '';
   const orgHint = !folder?.configured
-    ? 'This org has no folder yet, so cards without a project folder run in a hidden Paperclip folder. Save to use this one (it is made if missing).'
+    ? 'This org has no folder yet. Save to use this one (it is made if missing).'
     : problems || "A folder you type is made if missing. Moving an org starts its agents' conversations fresh in the new folder.";
   return h('div', { className: 'max-w-3xl space-y-6' },
     h('div', { className: 'space-y-1' },
       h('h2', { className: 'text-lg font-semibold' }, 'Org folder'),
       h('p', { className: 'text-sm text-muted-foreground' },
-        "This org's Claude agents work in this folder, unless a card's project has a folder of its own. Claude Desktop lists their conversations under it.")),
+        "This org's Claude agents live in this folder: one Claude Desktop conversation each, listed under it in Claude Desktop's sidebar.")),
+    h('section', { className: 'space-y-2' },
+      h('h3', { className: 'text-sm font-medium' }, 'Claude Desktop'),
+      data?.desktop
+        ? h('p', { className: 'text-xs text-muted-foreground' },
+          'This org works from Claude Desktop: each Claude agent has its conversation there, every turn it takes shows here as a run, and what you do here waits for its next turn.')
+        : h('div', { className: 'flex items-center gap-2' },
+          h('p', { className: 'text-xs text-muted-foreground' }, "This org's Claude agents have not moved to Claude Desktop yet; Paperclip's wakes for them stop with a note until they do."),
+          h('button', {
+            type: 'button', className: BUTTON, disabled: busy === 'desktop',
+            onClick: () => run('desktop', () => setDesktop({ on: true }), 'Moved. Each Claude agent gets its conversation in Claude Desktop within a minute.'),
+          }, busy === 'desktop' ? 'Moving…' : 'Move to Claude Desktop'))),
     h(FolderRow, {
       label: "This org's folder",
       hint: orgHint,
@@ -84,51 +96,38 @@ async function getJson(url) {
   return res.json();
 }
 
-/** Every Claude agent's conversation for this card, newest first. */
-async function cardConversations(companyId, issueId) {
-  const agents = await getJson(`/api/companies/${encodeURIComponent(companyId)}/agents`);
-  const lists = await Promise.all(agents
-    .filter((agent) => agent.adapterType === 'claude_local')
-    .map((agent) => getJson(`/api/agents/${encodeURIComponent(agent.id)}/task-sessions`)
-      .then((sessions) => sessions.map((session) => ({ ...session, agentName: agent.name })))
-      .catch(() => [])));
-  return lists.flat()
-    .filter((s) => s.taskKey === issueId && UUID.test(String(s.sessionParamsJson?.sessionId ?? '')) && s.sessionParamsJson?.cwd)
-    .sort((a, b) => String(b.updatedAt ?? '').localeCompare(String(a.updatedAt ?? '')))
-    .map((s) => ({ agentName: s.agentName, sessionId: s.sessionParamsJson.sessionId, cwd: s.sessionParamsJson.cwd }));
-}
-
-/** Card toolbar: open the agent's conversation for this card in Claude Desktop. Hidden until there is one. */
+/** Card toolbar: open the conversation of the card's agent in Claude Desktop. Hidden when it has none. */
 export function OpenInClaudeDesktop({ context }) {
   const open = usePluginAction('open-in-desktop');
-  const [conversations, setConversations] = useState([]);
+  const { data } = usePluginData('agent-conversations', { companyId: context?.companyId });
+  const [assignee, setAssignee] = useState(null);
   const [busy, setBusy] = useState(null);
   const [note, setNote] = useState(null);
 
   useEffect(() => {
     let gone = false;
-    if (context?.companyId && context?.entityId) {
-      cardConversations(context.companyId, context.entityId)
-        .then((list) => { if (!gone) setConversations(list); })
-        .catch(() => { if (!gone) setConversations([]); });
+    if (context?.entityId) {
+      getJson(`/api/issues/${encodeURIComponent(context.entityId)}`)
+        .then((card) => { if (!gone) setAssignee(card?.assigneeAgentId ?? null); })
+        .catch(() => { if (!gone) setAssignee(null); });
     }
     return () => { gone = true; };
-  }, [context?.companyId, context?.entityId]);
+  }, [context?.entityId]);
 
-  if (conversations.length === 0) return null;
-  const one = conversations.length === 1;
+  const conversations = (data?.conversations ?? []).filter((c) => c.agentId === assignee && UUID.test(String(c.sessionId)));
+  if (!data?.folder || conversations.length === 0) return null;
   return h('div', { className: 'inline-flex flex-wrap items-center gap-2' },
     conversations.map((c) => h('button', {
       key: c.sessionId,
       type: 'button',
       className: BUTTON,
       disabled: busy === c.sessionId,
-      title: `${c.agentName}'s conversation for this card, in ${c.cwd}`,
+      title: `${c.name ?? 'The agent'}'s conversation in Claude Desktop, in ${data.folder}`,
       onClick: async () => {
         setBusy(c.sessionId);
         setNote(null);
         try {
-          const result = await open({ sessionId: c.sessionId, cwd: c.cwd });
+          const result = await open({ sessionId: c.sessionId, cwd: data.folder });
           setNote(result?.alreadyOpen ? 'Already open in Claude Desktop: it is in the sidebar.'
             : result?.ok ? 'Opened in Claude Desktop.' : `Could not open it (${result?.reason ?? 'no answer'}).`);
         } catch (err) {
@@ -137,6 +136,6 @@ export function OpenInClaudeDesktop({ context }) {
           setBusy(null);
         }
       },
-    }, one ? 'Open in Claude Desktop' : `Open ${c.agentName} in Claude Desktop`)),
+    }, c.name ? `Open ${c.name} in Claude Desktop` : 'Open in Claude Desktop')),
     note ? h('span', { className: 'text-xs text-muted-foreground' }, note) : null);
 }

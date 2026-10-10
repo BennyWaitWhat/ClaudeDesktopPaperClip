@@ -24,9 +24,9 @@ export function desktopNotes({ name, org, cardTool = CARD_TOOL }) {
   return `## Working from Claude Desktop
 
 You are ${name}, an agent in the Paperclip org ${org}. You live in one Claude Desktop conversation, where the board (Benny) and the other agents talk to you. Paperclip keeps the team's cards and records; it never starts your work.
-- Every turn you take is recorded as a Paperclip run, and $PAPERCLIP_RUN_ID always holds the current one. With every Paperclip API call send "Authorization: Bearer $PAPERCLIP_API_KEY" and "X-Paperclip-Run-Id: $PAPERCLIP_RUN_ID" (double quotes, so the shell fills them in). You don't run in Paperclip heartbeats: skip what your skills say about heartbeats and inbox polling.
+- Every turn you take is recorded as a Paperclip run, and $PAPERCLIP_RUN_ID always holds the current one. Make Paperclip API calls from the Bash tool (it has your Paperclip environment; PowerShell does not), with "Authorization: Bearer $PAPERCLIP_API_KEY" and "X-Paperclip-Run-Id: $PAPERCLIP_RUN_ID" (double quotes, so the shell fills them in). You don't run in Paperclip heartbeats: skip what your skills say about heartbeats and inbox polling.
 - A run can comment on and update its own card freely, and up to 20 other cards. A turn whose message names a card runs on that card. To work on another card, first run: node "${forward(cardTool)}" <CARD> (it ends the run so far and opens one on that card).
-- Handing work to another agent: create the card for them in backlog, assigned to them, then send their Desktop conversation a message that names the card. Never leave a card waiting in todo: Paperclip treats todo as work it should start.
+- Your team, and each member's Desktop conversation, are in .claude/paperclip-team.md. Handing work to one of them: create the card for them in backlog, assigned to them, then send their Desktop conversation a message that names the card (Claude Desktop's send_message). Never leave a card waiting in todo: Paperclip treats todo as work it should start.
 - End every turn with each card you touched done, in_review (with a reviewer), blocked (with a blocker or a question for the board), or back in backlog; never todo or in_progress.
 - A turn may open with what changed in Paperclip since your last one (cards given to you, comments, answers): handle those first.
 - Your agent folder is $AGENT_HOME: relative file references in your instructions resolve there.`;
@@ -84,6 +84,22 @@ export async function writeAgentFile({ folder, agent, org, instructions }) {
     if (owner(await fsp.readFile(path.join(dir, other), 'utf8').catch(() => '')) === agent.id) await fsp.rm(path.join(dir, other), { force: true });
   }
   return { slug, file, hash: crypto.createHash('sha256').update(markdown).digest('hex'), changed };
+}
+
+/** Remove the agent files of Paperclip agents no longer on the team (terminated, or moved away). Returns their paths. */
+export async function removeOtherAgentFiles(folder, keepIds) {
+  const dir = path.join(folder, '.claude', 'agents');
+  const keep = new Set(keepIds);
+  const removed = [];
+  for (const f of await fsp.readdir(dir).catch(() => [])) {
+    if (!f.endsWith('.md')) continue;
+    const id = owner(await fsp.readFile(path.join(dir, f), 'utf8').catch(() => ''));
+    if (id && !keep.has(id)) {
+      await fsp.rm(path.join(dir, f), { force: true });
+      removed.push(path.join(dir, f));
+    }
+  }
+  return removed;
 }
 
 /** Where the installed Paperclip keeps a bundled skill ("paperclipai/paperclip/<name>"), or null. */

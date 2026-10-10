@@ -4,8 +4,9 @@
 // - UserPromptSubmit and Stop (hooks/desktop-turn.mjs): each turn such a conversation takes is a Paperclip run.
 // Claude Desktop loads project settings, so this is what talking to the org in Desktop means.
 //
-// The folder sets no default agent on purpose: Claude Code prefers a folder default over the agent a conversation
-// started with until that conversation has its first reply.
+// The folder's default agent is the Chief of Staff (grill Q14), so a new chat there is the Chief of Staff. Claude
+// Code prefers a folder default over the agent a conversation started with until that conversation's first reply,
+// so every agent's conversation is made with one hello reply (org-sync.mjs).
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
@@ -50,10 +51,11 @@ export async function hasSessionHook(folder) {
 
 /**
  * Give a plain folder our hooks (SessionStart, UserPromptSubmit, Stop), replacing older copies of them and keeping the
- * Chief of Staff they name unless `chiefId` gives one. The rest of the file stays as it is; a git repo, or a
- * settings file that is not valid JSON, is left alone. Returns { file, changed, reason? }.
+ * Chief of Staff they name unless `chiefId` gives one, and `defaultAgent` as the folder's default agent when given.
+ * The rest of the file stays as it is; a git repo, or a settings file that is not valid JSON, is left alone.
+ * Returns { file, changed, reason? }.
  */
-export async function ensureOrgSettings(folder, { node, apiUrl, instanceRoot, chiefId = null }) {
+export async function ensureOrgSettings(folder, { node, apiUrl, instanceRoot, chiefId = null, defaultAgent = null }) {
   const file = path.join(folder, '.claude', 'settings.json');
   if (fs.existsSync(path.join(folder, '.git'))) return { file, changed: false, reason: 'a git repo' };
   const { settings } = await readSettings(folder);
@@ -67,6 +69,7 @@ export async function ensureOrgSettings(folder, { node, apiUrl, instanceRoot, ch
     hooks[event] = [...others, { hooks: [{ type: 'command', command: hookCommand(script, { node, apiUrl, instanceRoot, chiefId: chief }) }] }];
   }
   settings.hooks = hooks;
+  if (defaultAgent) settings.agent = defaultAgent;
   if (JSON.stringify(settings) === before) return { file, changed: false };
   await fsp.mkdir(path.dirname(file), { recursive: true });
   await fsp.writeFile(file, `${JSON.stringify(settings, null, 2)}\n`);

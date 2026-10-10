@@ -1,11 +1,37 @@
+// The Claude Desktop plugin's worker. It gives each new org its folder, moves the org to Claude Desktop, and keeps
+// the org's folder and its agents' Desktop conversations in step with Paperclip (org-sync.mjs): at once when
+// Paperclip's live activity feed shows an agent hired, changed or removed, and once a minute besides.
+import os from 'node:os';
 import path from 'node:path';
 import { definePlugin, runWorker } from '@paperclipai/plugin-sdk';
-import { openInDesktop } from '../desktop.mjs';
+import { desktopClaudeCode, handOffWhenQuiet, openInDesktop, windowsUserEnv } from '../desktop.mjs';
+import { desktopOrgs, isDesktopOrg, readOrg, switchOrg } from '../desktop-orgs.mjs';
+import { markHandedOff, noteNewCard, paperclipApi, syncOrg } from '../org-sync.mjs';
 import { applyUiFixes } from '../paperclip-ui-fixes.mjs';
 import { desktopFolder, ensureFolder, ensureOrgFolder, orgFolderName } from './folders.mjs';
 
 export const FOLDER_KEY = 'org';
 const WHERE_NEW_ORGS_GO = { scopeKind: 'instance', stateKey: 'new-org-parent' };
+
+/** Paperclip's instance folder, found the way Paperclip finds it (plugin workers start without its settings). */
+export function paperclipInstance(env = process.env) {
+  const raw = env.PAPERCLIP_HOME?.trim();
+  const home = !raw ? path.join(os.homedir(), '.paperclip') : path.resolve(raw === '~' ? os.homedir() : raw.startsWith('~/') ? path.join(os.homedir(), raw.slice(2)) : raw);
+  return path.join(home, 'instances', env.PAPERCLIP_INSTANCE_ID?.trim() || 'default');
+}
+
+// What the worker works with; tests swap these before setup.
+export const options = {
+  instance: paperclipInstance(),
+  api: null, // from Paperclip's runtime record when not set
+  sync: syncOrg,
+  handOff: handOffWhenQuiet,
+  noteCard: noteNewCard,
+  watch: true,
+  tickMs: 60_000,
+};
+const api = () => options.api ?? paperclipApi(options.instance);
+const claude = () => desktopClaudeCode(windowsUserEnv())?.file ?? 'claude';
 
 /** Where new org folders go: the place you chose, or the Desktop. */
 export async function newOrgParent(ctx) {
@@ -23,7 +49,89 @@ export async function giveOrgAFolder(ctx, companyId) {
   return ctx.localFolders.configure({ companyId, folderKey: FOLDER_KEY, path: dir });
 }
 
-let host = null; // setup's ctx, for API requests
+let host = null; // setup's ctx
+const log = (level, message, meta) => host?.logger?.[level]?.(message, meta);
+
+// One sync at a time per org; asking during a sync runs it once more after.
+const syncing = new Map();
+const again = new Set();
+export function syncSoon(companyId, why) {
+  if (syncing.has(companyId)) { again.add(companyId); return syncing.get(companyId); }
+  const run = (async () => {
+    do {
+      again.delete(companyId);
+      try {
+        const result = await options.sync({ api: api(), instance: options.instance, companyId, claude: claude() });
+        if (result.skipped) log('debug', 'Org not synced', { companyId, why, skipped: result.skipped });
+        else if (result.wrote.length || result.made.length) {
+          log('info', 'Org in step with Claude Desktop', {
+            companyId, org: result.org, why, wrote: result.wrote, skippedSkills: result.skippedSkills,
+            made: result.made.map(({ name, ok, sessionId, model, reply, error }) => ({ name, ok, sessionId, model, reply, error })),
+          });
+        }
+        for (const item of result.handOff ?? []) queueHandOff(companyId, result.folder, item);
+      } catch (err) {
+        log('warn', 'Org sync failed', { companyId, why, error: String(err?.stack ?? err) });
+      }
+    } while (again.has(companyId));
+    syncing.delete(companyId);
+  })();
+  syncing.set(companyId, run);
+  return run;
+}
+
+// New conversations go to Claude Desktop one at a time, each at a pause in your typing (Desktop switches to a
+// conversation it is handed). One that does not get there is tried again a few minutes later.
+const handing = new Set();
+const handOffFailed = new Map();
+let handOffs = Promise.resolve();
+function queueHandOff(companyId, folder, { agentId, name, sessionId }) {
+  if (handing.has(sessionId) || Date.now() - (handOffFailed.get(sessionId) ?? 0) < 5 * 60_000) return;
+  handing.add(sessionId);
+  handOffs = handOffs.then(async () => {
+    const result = await options.handOff(sessionId, folder);
+    if (result?.ok) {
+      markHandedOff(options.instance, companyId, agentId);
+      handOffFailed.delete(sessionId);
+      log('info', `${name}'s conversation is in Claude Desktop`, { companyId, sessionId, alreadyOpen: Boolean(result.alreadyOpen) });
+    } else {
+      handOffFailed.set(sessionId, Date.now());
+      log('warn', `${name}'s conversation did not reach Claude Desktop`, { companyId, sessionId, reason: result?.reason });
+    }
+  }).catch((err) => log('warn', 'Handing a conversation to Claude Desktop failed', { error: String(err) }))
+    .finally(() => handing.delete(sessionId));
+}
+
+// Paperclip's live activity feed, per org on Claude Desktop: hires and agent changes (a hire announces nothing else
+// to plugins).
+const AGENT_CHANGES = new Set([
+  'agent.hire_created', 'agent.created', 'agent.approved', 'agent.updated', 'agent.terminated', 'agent.deleted', 'agent.config_rolled_back',
+  'agent.instructions_path_updated', 'agent.instructions_bundle_updated', 'agent.instructions_file_updated', 'agent.instructions_file_deleted',
+  'agent.skills_synced', 'approval.approved',
+]);
+const feeds = new Map();
+function watchOrg(companyId) {
+  if (!options.watch || feeds.has(companyId) || typeof WebSocket !== 'function') return;
+  const feed = new WebSocket(`${api().replace(/^http/, 'ws')}/api/companies/${companyId}/events/ws`);
+  feeds.set(companyId, feed);
+  feed.addEventListener('message', (m) => {
+    let event = null;
+    try { event = JSON.parse(String(m.data)); } catch { return; }
+    if (event?.type === 'activity.logged' && AGENT_CHANGES.has(event.payload?.action)) syncSoon(companyId, event.payload.action);
+  });
+  feed.addEventListener('close', () => { if (feeds.get(companyId) === feed) feeds.delete(companyId); });
+  feed.addEventListener('error', () => {});
+}
+
+/** Move an org to Claude Desktop (its folder first), or back. */
+export async function setDesktop(ctx, companyId, on) {
+  if (!on) return switchOrg(options.instance, companyId, { on: false });
+  const folder = await giveOrgAFolder(ctx, companyId);
+  const org = switchOrg(options.instance, companyId, { on: true, folder: folder.path });
+  watchOrg(companyId);
+  syncSoon(companyId, 'moved to Claude Desktop');
+  return org;
+}
 
 const plugin = definePlugin({
   async setup(ctx) {
@@ -33,11 +141,30 @@ const plugin = definePlugin({
     const fixes = applyUiFixes();
     ctx.logger.info('Paperclip page fixes', fixes);
 
-    // Part of making an org: its folder exists before its first agent runs.
+    const onDesktop = desktopOrgs(options.instance);
+    ctx.logger.info('Orgs on Claude Desktop', { orgs: onDesktop.map((o) => ({ companyId: o.companyId, folder: o.folder })) });
+    for (const org of onDesktop) { watchOrg(org.companyId); syncSoon(org.companyId, 'start'); }
+    const tick = setInterval(() => {
+      for (const org of desktopOrgs(options.instance)) { watchOrg(org.companyId); syncSoon(org.companyId, 'every minute'); }
+    }, options.tickMs);
+    tick.unref?.();
+
+    // Making an org makes its folder and moves it to Claude Desktop, before its first agent exists.
     ctx.events.on('company.created', async (event) => {
       const companyId = event.companyId ?? event.entityId;
-      const folder = await giveOrgAFolder(ctx, companyId);
-      ctx.logger.info('Org folder ready', { companyId, path: folder.path });
+      const org = await setDesktop(ctx, companyId, true);
+      ctx.logger.info('New org on Claude Desktop', { companyId, folder: org.folder });
+    });
+    for (const name of ['agent.created', 'agent.updated', 'approval.decided']) {
+      ctx.events.on(name, async (event) => {
+        if (isDesktopOrg(options.instance, event.companyId)) syncSoon(event.companyId, name);
+      });
+    }
+    // A card the board makes for one of the org's Claude agents waits in that agent's Desktop inbox.
+    ctx.events.on('issue.created', async (event) => {
+      if (!isDesktopOrg(options.instance, event.companyId)) return;
+      const noted = await options.noteCard({ api: api(), instance: options.instance, issueId: event.entityId });
+      if (noted) ctx.logger.info('Card waits for its agent in Claude Desktop', { companyId: event.companyId, card: noted.card?.identifier, agentId: noted.agentId });
     });
 
     // Settings > Org folder. `suggested` is the folder a new org would get, for an org that has none yet.
@@ -48,21 +175,36 @@ const plugin = definePlugin({
         folder: companyId ? await ctx.localFolders.status(companyId, FOLDER_KEY) : null,
         suggested: company ? path.join(parent, orgFolderName(company.name)) : null,
         newOrgParent: parent,
+        desktop: companyId ? isDesktopOrg(options.instance, companyId) : false,
       };
     });
-    ctx.actions.register('set-org-folder', async ({ companyId, path: dir }) =>
-      ctx.localFolders.configure({ companyId, folderKey: FOLDER_KEY, path: ensureFolder(dir) }));
+    ctx.actions.register('set-org-folder', async ({ companyId, path: dir }) => {
+      const folder = await ctx.localFolders.configure({ companyId, folderKey: FOLDER_KEY, path: ensureFolder(dir) });
+      if (isDesktopOrg(options.instance, companyId)) { switchOrg(options.instance, companyId, { on: true, folder: folder.path }); syncSoon(companyId, 'folder moved'); }
+      return folder;
+    });
     ctx.actions.register('set-new-org-parent', async ({ path: dir }) => {
       const parent = ensureFolder(dir);
       await ctx.state.set(WHERE_NEW_ORGS_GO, parent);
       return { newOrgParent: parent };
     });
+    ctx.actions.register('set-desktop', async ({ companyId, on }) => {
+      const org = await setDesktop(ctx, companyId, Boolean(on));
+      return { desktop: org.desktop, folder: org.folder };
+    });
 
-    // The card button: hand the agent's conversation for this card to Claude Desktop.
+    // The card button: the Desktop conversation of each of the org's agents.
+    ctx.data.register('agent-conversations', async ({ companyId }) => {
+      const org = companyId ? readOrg(options.instance, companyId) : null;
+      const conversations = Object.entries(org?.conversations ?? {})
+        .filter(([, c]) => c?.ready && c.sessionId)
+        .map(([agentId, c]) => ({ agentId, name: c.name ?? null, sessionId: c.sessionId }));
+      return { desktop: org?.desktop === true, folder: org?.folder ?? null, conversations };
+    });
     ctx.actions.register('open-in-desktop', async ({ sessionId, cwd }) => openInDesktop(sessionId, cwd));
   },
 
-  // The adapter asks with the run's own token; the answer is that agent's org folder.
+  // Kept for older adapters, which asked with the run's own token for the agent's org folder.
   async onApiRequest(input) {
     if (input.routeKey !== 'org-folder') return { status: 404, body: { error: 'Unknown route' } };
     const folder = await host.localFolders.status(input.companyId, FOLDER_KEY);
@@ -70,7 +212,7 @@ const plugin = definePlugin({
   },
 
   async onHealth() {
-    return { status: 'ok', message: 'Org folders and Open in Claude Desktop are ready' };
+    return { status: 'ok', message: 'Org folders, Claude Desktop conversations and Open in Claude Desktop are ready' };
   },
 });
 
