@@ -55,7 +55,7 @@ export function createConversation({ claude, folder, slug, name, org, sessionId 
     '--output-format', 'json', '--max-turns', '1', '--tools', '', '--strict-mcp-config', '--setting-sources', 'project,local', '--effort', 'low',
   ];
   return new Promise((resolve) => {
-    execFile(claude, args, { cwd: folder, env: { ...windowsUserEnv(), [HELLO_ENV]: '1' }, windowsHide: true, timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
+    const child = execFile(claude, args, { cwd: folder, env: { ...windowsUserEnv(), [HELLO_ENV]: '1' }, windowsHide: true, timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
       let out = null;
       try { out = JSON.parse(String(stdout).trim().split('\n').pop()); } catch { /* no answer */ }
       const ok = Boolean(!err && out && !out.is_error && out.session_id === sessionId);
@@ -64,6 +64,7 @@ export function createConversation({ claude, folder, slug, name, org, sessionId 
         error: ok ? null : String(out?.result || stderr || err?.message || 'Claude Code gave no answer').slice(0, 500),
       });
     });
+    child.stdin?.end(); // nothing to read: Claude Code would otherwise wait for it
   });
 }
 

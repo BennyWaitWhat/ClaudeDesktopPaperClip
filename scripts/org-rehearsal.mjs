@@ -144,10 +144,12 @@ try {
   check('the card goes to backlog, waiting for Desktop', parked, parked?.status ?? (await call(`/api/issues/${card.id}`)).json?.status);
   check("and into the Cashier's inbox", await until(() => fs.existsSync(inboxFile(INSTANCE, cashier.id)), 10_000));
 
-  // 4. The Cashier's next turn.
+  // 4. The Cashier's next turn, in "accept edits" mode as Claude Desktop runs it: its Paperclip calls go through
+  // without asking (hooks/paperclip-allow.mjs).
   const cashierSession = helloes.find((h) => h.name === 'Cashier')?.sessionId;
   const turn = await claudeTurn(['-p', `Please take ${card.identifier}: check it out, add the comment "Till counted: 3 lemonades sold.", then mark it done.`,
-    '--resume', cashierSession, '--output-format', 'json', '--max-turns', '25', '--dangerously-skip-permissions'], folder);
+    '--resume', cashierSession, '--output-format', 'json', '--max-turns', '25', '--permission-mode', 'acceptEdits'], folder);
+  check('no step was refused for lack of approval', !(turn.out?.permission_denials?.length), turn.out?.permission_denials?.map((d) => d.tool_input?.command ?? d.tool_name));
   check("the Cashier's turn finished", turn.out && !turn.out.is_error, turn.out?.result?.slice?.(0, 300) ?? turn.stderr.slice(0, 300));
   const t = transcriptOf(cashierSession);
   check('it opened with what happened in Paperclip', t && fs.readFileSync(t, 'utf8').includes('Since your last turn, in Paperclip'));

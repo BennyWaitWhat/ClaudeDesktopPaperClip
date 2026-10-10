@@ -150,7 +150,8 @@ export async function openTurnRun({ api, token, agentId, sessionId, transcript, 
     });
     const run = woke.status === 202 && typeof woke.json?.id === 'string' && woke.json?.agentId === agentId ? woke.json : null;
     if (!run) break;
-    if (run.status === 'queued' && run.id !== previous) runId = run.id;
+    // A run still queued starts as this turn (Paperclip merges the wake's reason into it); check that it did.
+    if (run.status === 'queued' && run.id !== previous && (run.contextSnapshot?.wakeReason ?? DESKTOP_TURN_REASON) === DESKTOP_TURN_REASON) runId = run.id;
     else if (!(await waitFinished(api, token, run.id, waitMs))) break;
   }
   if (!runId) {

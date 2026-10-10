@@ -1,7 +1,8 @@
 // An org folder as Claude Code sees it, through its own .claude/settings.json:
 // - SessionStart (hooks/desktop-session.mjs): every conversation there that runs as one of the org's agents gets
 //   that agent's Paperclip access, and a plain new conversation is the org's Chief of Staff;
-// - UserPromptSubmit and Stop (hooks/desktop-turn.mjs): each turn such a conversation takes is a Paperclip run.
+// - UserPromptSubmit and Stop (hooks/desktop-turn.mjs): each turn such a conversation takes is a Paperclip run;
+// - PreToolUse for Bash (hooks/paperclip-allow.mjs): its calls to Paperclip go ahead without asking.
 // Claude Desktop loads project settings, so this is what talking to the org in Desktop means.
 //
 // The folder's default agent is the Chief of Staff (grill Q14), so a new chat there is the Chief of Staff. Claude
@@ -14,9 +15,16 @@ import { fileURLToPath } from 'node:url';
 
 export const SESSION_HOOK = fileURLToPath(new URL('./hooks/desktop-session.mjs', import.meta.url));
 export const TURN_HOOK = fileURLToPath(new URL('./hooks/desktop-turn.mjs', import.meta.url));
-const OURS = { SessionStart: SESSION_HOOK, UserPromptSubmit: TURN_HOOK, Stop: TURN_HOOK };
+// Claude Desktop runs the conversations it is handed in "accept edits" mode: this approves their Paperclip calls only.
+export const ALLOW_HOOK = fileURLToPath(new URL('./hooks/paperclip-allow.mjs', import.meta.url));
+const OURS = [
+  { event: 'SessionStart', script: SESSION_HOOK },
+  { event: 'UserPromptSubmit', script: TURN_HOOK },
+  { event: 'Stop', script: TURN_HOOK },
+  { event: 'PreToolUse', script: ALLOW_HOOK, matcher: 'Bash' },
+];
 const q = (p) => `"${String(p).replace(/\\/g, '/')}"`;
-const isOurHook = (h) => typeof h?.command === 'string' && /desktop-(session|turn)\.mjs/.test(h.command);
+const isOurHook = (h) => typeof h?.command === 'string' && /desktop-(session|turn)\.mjs|paperclip-allow\.mjs/.test(h.command);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** A hook's command line: the script, the Paperclip it talks to, the instance folder it keeps keys in, the Chief of Staff. */
@@ -32,7 +40,7 @@ async function readSettings(folder) {
   try { return { file, settings: JSON.parse(raw) }; } catch { return { file, settings: null }; }
 }
 
-const ourCommands = (settings) => Object.keys(OURS).flatMap((event) => (settings?.hooks?.[event] ?? []).flatMap((g) => g?.hooks ?? []).filter(isOurHook).map((h) => h.command));
+const ourCommands = (settings) => [...new Set(OURS.map((o) => o.event))].flatMap((event) => (settings?.hooks?.[event] ?? []).flatMap((g) => g?.hooks ?? []).filter(isOurHook).map((h) => h.command));
 
 /** The org's Chief of Staff as the folder's hooks name it, or null. */
 export async function chiefOf(folder) {
@@ -63,10 +71,13 @@ export async function ensureOrgSettings(folder, { node, apiUrl, instanceRoot, ch
   const before = JSON.stringify(settings);
   const chief = chiefId ?? (await chiefOf(folder));
   const hooks = settings.hooks && typeof settings.hooks === 'object' ? { ...settings.hooks } : {};
-  for (const [event, script] of Object.entries(OURS)) {
+  for (const event of new Set(OURS.map((o) => o.event))) {
     const groups = Array.isArray(hooks[event]) ? hooks[event] : [];
     const others = groups.map((g) => ({ ...g, hooks: (g.hooks ?? []).filter((h) => !isOurHook(h)) })).filter((g) => g.hooks.length > 0);
-    hooks[event] = [...others, { hooks: [{ type: 'command', command: hookCommand(script, { node, apiUrl, instanceRoot, chiefId: chief }) }] }];
+    const ours = OURS.filter((o) => o.event === event).map(({ script, matcher }) => ({
+      ...(matcher ? { matcher } : {}), hooks: [{ type: 'command', command: hookCommand(script, { node, apiUrl, instanceRoot, chiefId: chief }) }],
+    }));
+    hooks[event] = [...others, ...ours];
   }
   settings.hooks = hooks;
   if (defaultAgent) settings.agent = defaultAgent;
