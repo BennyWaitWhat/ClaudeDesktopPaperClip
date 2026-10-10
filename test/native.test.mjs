@@ -137,6 +137,13 @@ test('a managed run config becomes a native one', () => {
   assert.deepEqual(out.extraArgs, ['--foo', '--mcp-config', 'C:/Temp/mcp.json']);
 });
 
+test("a native turn's own arguments go before the session name and the run tools", () => {
+  const out = nativeConfig({ extraArgs: ['--foo'], promptTemplate: 'old' }, { title: 'T', mcpConfigPath: 'm.json', args: ['--agent', 'x'], overrides: { promptTemplate: 'new', instructionsFilePath: '' } });
+  assert.deepEqual(out.extraArgs, ['--foo', '--agent', 'x', '--name', 'T', '--mcp-config', 'm.json']);
+  assert.equal(out.promptTemplate, 'new');
+  assert.equal(out.instructionsFilePath, '');
+});
+
 test('falls back to the configured command, then claude on PATH', () => {
   assert.equal(nativeConfig({ command: 'D:/claude.exe' }).command, 'D:/claude.exe');
   assert.equal(nativeConfig({}).command, 'claude');

@@ -28,10 +28,31 @@ Each run is Paperclip's own Claude adapter, unchanged, minus four things:
 4. **Paperclip-only tools.** Paperclip passes its run tools as the only MCP servers
    (`--strict-mcp-config`). Here they load next to your own MCP servers and connectors.
 
+## Each run is a native Claude Code turn
+
+Paperclip is mapped onto how Claude Code already works (`native-turn.mjs`):
+
+- **The agent is a Claude Code agent.** Its Paperclip instructions (`AGENTS.md`), Paperclip's standing rules
+  and a short note on working through Paperclip become one agent definition, used with `--agent`. In a plain
+  folder (an org folder) it is `.claude/agents/<agent>.md`, which you can open and see in `/agents`; a file of
+  that name that is not the agent's is never overwritten. In a git repo it goes in the run's own scratch folder,
+  so nothing lands in the repo.
+- **Each card is one conversation.** A run continues the card's conversation whenever Claude Code has it in that
+  folder. Paperclip's own adapter also required an unchanged instructions fingerprint, and Paperclip copies an
+  agent's instructions to a new folder every run, so it started a new conversation every time.
+- **The message is what the person wrote.** A new card opens with its title and description; after that each
+  turn's message is the comments people added (and their answers to question cards), word for word. A turn
+  nobody wrote (a timer, a sub-card finishing) gets one plain line saying why it happened.
+- **Paperclip's details for the turn arrive as hook context.** The card, what changed and what the wake needs
+  go through a `UserPromptSubmit` hook (`hooks/turn-context.mjs`, passed with `--settings` for that run only),
+  which Claude Code keeps beside the message instead of in it. A conversation that already has the card gets
+  Paperclip's shorter version.
+- The agent ends a turn with the text of the comment it posted, so the card and the conversation read the same.
+
 ## Claude Desktop sees the agents
 
 - Each agent session is named `<card> · <agent>` (for example `CAR-15 · Chief of Staff`), or just the agent
-  for a run with no card. Paperclip keeps one session per agent per card.
+  for a run with no card. One conversation per agent per card.
 - When a run starts a new conversation, it is handed to Claude Desktop with Claude Code's own
   `claude --desktop --resume <id>`. It shows in the sidebar under the folder it ran in, with that name, and you
   can open it and keep going there with everything Claude Desktop has.
@@ -88,8 +109,8 @@ Paperclip's own folder choice).
 
 ## After editing
 
-- `index.mjs` or `desktop.mjs`: reload the adapter (Settings > Adapters > reload, or
-  `POST /api/adapters/claude_local/reload`).
+- `index.mjs`, `desktop.mjs`, `native-turn.mjs` or `hooks/`: reload the adapter (Settings > Adapters > reload,
+  or `POST /api/adapters/claude_local/reload`).
 - `plugin/`: reload the plugin (`POST /api/plugins/claude-desktop-paperclip/upgrade`), then refresh the page.
 
 A running Paperclip keeps the old code until then.
@@ -98,10 +119,12 @@ A running Paperclip keeps the old code until then.
 
 - `npm test`: offline checks for both parts, no Paperclip server and no model calls (the plugin's need
   `npm install` in `plugin/` first).
-- `node scripts/live-smoke.mjs`: one real run on a cheap model, set up like a managed run (throwaway home,
-  bogus token). It passes only when the run uses Claude Desktop's Claude Code with your own login, without
-  the "user settings only" and Paperclip-only-tools switches, and saves its conversation in your own Claude
-  folder.
+- `node scripts/live-smoke.mjs`: two real turns on a cheap model, a new card and then a comment on it, the
+  first set up like a managed run (throwaway home, bogus token). It passes only when the runs use Claude
+  Desktop's Claude Code with your own login, without the "user settings only" and Paperclip-only-tools
+  switches, as native turns: the agent from its agent file, one conversation for the card, the person's words
+  as the messages and Paperclip's details as hook context. Nothing goes to Claude Desktop, and everything the
+  test makes is removed.
 
 ## Limits
 

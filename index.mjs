@@ -20,6 +20,10 @@
 // folder when the project has one, else the agent's own folder (cwd), else the org's folder from the Claude
 // Desktop plugin (plugin/), never the hidden folders Paperclip falls back to.
 //
+// Each run is a native Claude Code turn (native-turn.mjs): the agent is a Claude Code agent (--agent), each card
+// is one conversation that continues every run, the message is what the person wrote on the card, and
+// Paperclip's details for the turn arrive as hook context beside it.
+//
 // Claude Desktop sees the agents' sessions: each session is named "<card> · <agent>", and a run that starts a
 // new conversation hands it to Claude Desktop (claude --desktop --resume), which lists it in the sidebar under
 // that folder. A run waits while you are mid-turn in the agent's session in Claude Desktop.
@@ -30,8 +34,10 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 // Same cache-busting query as this file, so Paperclip's adapter reload also reloads the shared helpers.
-const desktop = await import(new URL(`./desktop.mjs${new URL(import.meta.url).search}`, import.meta.url).href);
+const sibling = (file) => import(new URL(`./${file}${new URL(import.meta.url).search}`, import.meta.url).href);
+const desktop = await sibling('desktop.mjs');
 export const { desktopClaudeCode, liveSessions, openInDesktop, windowsUserEnv } = desktop;
+const { prepareNativeTurn } = await sibling('native-turn.mjs');
 
 /** Folder of a @paperclipai package next to the running Paperclip (realpath, so the server's own copy). */
 export function findPaperclipPackage(name, starts = [
@@ -63,8 +69,11 @@ export function sessionTitle(ctx) {
 export const THROWAWAY_ENV = ['HOME', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'CODEX_HOME', 'GROK_HOME', 'CLAUDE_CONFIG_DIR', 'CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_AUTH_TOKEN'];
 const strings = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []);
 
-/** The run config Paperclip's Claude adapter gets: the same, minus everything that makes it non-native. */
-export function nativeConfig(config = {}, { agentId, command, mcpConfigPath, title } = {}) {
+/**
+ * The run config Paperclip's Claude adapter gets: the same, minus everything that makes it non-native, plus the
+ * native turn's own arguments (`args`) and settings (`overrides`).
+ */
+export function nativeConfig(config = {}, { agentId, command, mcpConfigPath, title, args = [], overrides = {} } = {}) {
   const { managedAiConnection: _managed, ...rest } = config ?? {};
   const env = { ...(rest.env && typeof rest.env === 'object' ? rest.env : {}) };
   for (const key of THROWAWAY_ENV) delete env[key];
@@ -72,16 +81,20 @@ export function nativeConfig(config = {}, { agentId, command, mcpConfigPath, tit
   if (id && !/(^|\n)\s*X-Anthropic-Agent-Id\s*:/i.test(env.ANTHROPIC_CUSTOM_HEADERS ?? '')) {
     env.ANTHROPIC_CUSTOM_HEADERS = [env.ANTHROPIC_CUSTOM_HEADERS, `X-Anthropic-Agent-Id: ${id}`].filter(Boolean).join('\n');
   }
-  const extraArgs = strings(rest.extraArgs).length ? strings(rest.extraArgs) : strings(rest.args);
+  const extraArgs = [...(strings(rest.extraArgs).length ? strings(rest.extraArgs) : strings(rest.args)), ...strings(args)];
   if (title) extraArgs.push('--name', title);
   if (mcpConfigPath) extraArgs.push('--mcp-config', mcpConfigPath); // last: --mcp-config takes a list
-  return { ...rest, env, engine: 'cli', command: command ?? rest.command ?? 'claude', extraArgs };
+  return { ...rest, ...overrides, env, engine: 'cli', command: command ?? rest.command ?? 'claude', extraArgs };
 }
 
+// Each run's own scratch folder (Paperclip's run tools, the agent for a git repo, the turn's hook), removed after.
+export const RUN_BASE = path.join(os.tmpdir(), 'paperclip-claude-native');
+const runDirFor = (runId, baseDir = RUN_BASE) => path.join(baseDir, String(runId).replace(/[^\w-]/g, '_'));
+
 /** Paperclip's run tools as an MCP config file (same shape Paperclip writes), loaded without --strict. */
-export async function writeRunMcpConfig(runId, servers, baseDir = path.join(os.tmpdir(), 'paperclip-claude-native')) {
+export async function writeRunMcpConfig(runId, servers, baseDir = RUN_BASE) {
   if (!servers?.length) return null;
-  const dir = path.join(baseDir, String(runId).replace(/[^\w-]/g, '_'));
+  const dir = runDirFor(runId, baseDir);
   const used = new Set();
   const mcpServers = {};
   for (const server of servers) {
@@ -154,40 +167,60 @@ const native = (ctx, extra = {}) => nativeConfig(ctx.config, { agentId: ctx.agen
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const priorSessionId = (ctx) => ctx.runtime?.sessionParams?.sessionId ?? ctx.runtime?.sessionId ?? null;
 
-async function execute(ctx) {
-  const log = (line) => ctx.onLog('stdout', `[native] ${line}\n`);
-  // Never run beside you: while you are mid-turn in this agent's session in Claude Desktop, wait.
-  const prior = priorSessionId(ctx);
-  let waited = false;
-  while (prior && liveSessions().some((s) => s.sessionId === prior && s.kind === 'interactive' && s.status === 'busy')) {
-    if (!waited) { waited = true; await log("You are working in this agent's session in Claude Desktop; the run starts when that turn ends."); }
-    if (ctx.signal?.aborted) return { exitCode: null, signal: 'SIGTERM', timedOut: false, errorMessage: 'Cancelled in Paperclip' };
-    await sleep(5000);
-  }
+/** A run, with the pieces it calls passed in (tests and smoke runs swap them). */
+export function createExecute({
+  runBuiltin = (ctx) => builtin.execute(ctx), open = openInDesktop, live = liveSessions, folderFor = runFolder,
+  runBase = RUN_BASE, claudeConfig, pollMs = 5000,
+} = {}) {
+  return async function execute(ctx) {
+    const log = (line, stream = 'stdout') => ctx.onLog(stream, `[native] ${line}\n`);
+    // Never run beside you: while you are mid-turn in this agent's session in Claude Desktop, wait.
+    const prior = priorSessionId(ctx);
+    let waited = false;
+    while (prior && live().some((s) => s.sessionId === prior && s.kind === 'interactive' && s.status === 'busy')) {
+      if (!waited) { waited = true; await log("You are working in this agent's session in Claude Desktop; the run starts when that turn ends."); }
+      if (ctx.signal?.aborted) return { exitCode: null, signal: 'SIGTERM', timedOut: false, errorMessage: 'Cancelled in Paperclip' };
+      await sleep(pollMs);
+    }
 
-  // No folder from Paperclip for this run: work in the org's folder, not a hidden Paperclip one.
-  const folder = await runFolder(ctx);
-  const context = folder ? { ...ctx.context, paperclipWorkspace: { ...ctx.context.paperclipWorkspace, cwd: folder.cwd } } : ctx.context;
-  if (folder) await log(`Working in ${folder.from}: ${folder.cwd}`);
+    // No folder from Paperclip for this run: work in the org's folder, not a hidden Paperclip one.
+    const folder = await folderFor(ctx);
+    const context = folder ? { ...ctx.context, paperclipWorkspace: { ...ctx.context.paperclipWorkspace, cwd: folder.cwd } } : ctx.context;
+    if (folder) await log(`Working in ${folder.from}: ${folder.cwd}`);
 
-  const title = sessionTitle(ctx);
-  const mcp = await writeRunMcpConfig(ctx.runId, ctx.runtimeMcp?.getServers?.() ?? []);
-  let result;
-  try {
-    result = await builtin.execute({ ...ctx, context, config: native(ctx, { mcpConfigPath: mcp?.file, title }), runtimeMcp: undefined });
-  } finally {
-    if (mcp) await fsp.rm(mcp.dir, { recursive: true, force: true }).catch(() => {});
-  }
+    const title = sessionTitle(ctx);
+    const runDir = runDirFor(ctx.runId, runBase);
+    let result;
+    let turn;
+    try {
+      const mcp = await writeRunMcpConfig(ctx.runId, ctx.runtimeMcp?.getServers?.() ?? [], runBase);
+      turn = await prepareNativeTurn({ ...ctx, context }, { utils: paperclipUtils, runDir, claudeConfig });
+      if (turn.warning) await log(turn.warning, 'stderr');
+      await log(turn.resume ? `Continuing this card's conversation (${turn.resume}).` : 'Starting a new conversation for this card.');
+      await log(`Agent "${turn.placed.slug}": ${turn.placed.file}`);
+      result = await runBuiltin({
+        ...ctx,
+        context: turn.context,
+        runtime: turn.runtime,
+        config: native(ctx, { mcpConfigPath: mcp?.file, title, args: turn.args, overrides: turn.overrides }),
+        runtimeMcp: undefined,
+      });
+    } finally {
+      await fsp.rm(runDir, { recursive: true, force: true }).catch(() => {});
+    }
 
-  // A new conversation goes to Claude Desktop's sidebar, under the folder it ran in.
-  const session = result?.sessionId ?? result?.sessionParams?.sessionId;
-  const cwd = result?.sessionParams?.cwd ?? folder?.cwd ?? ctx.config?.cwd;
-  if (session && session !== prior && cwd) {
-    const opened = await openInDesktop(session, cwd);
-    await log(opened.ok ? `Opened in Claude Desktop as "${title}".` : `Could not open it in Claude Desktop (${opened.reason}).`);
-  }
-  return result;
+    // A new conversation goes to Claude Desktop's sidebar, under the folder it ran in.
+    const session = result?.sessionId ?? result?.sessionParams?.sessionId;
+    const cwd = result?.sessionParams?.cwd ?? turn?.cwd;
+    if (session && session !== prior && cwd) {
+      const opened = await open(session, cwd);
+      await log(opened.ok ? `Opened in Claude Desktop as "${title}".` : `Could not open it in Claude Desktop (${opened.reason}).`);
+    }
+    return result;
+  };
 }
+
+const execute = createExecute();
 
 async function testEnvironment(ctx) {
   const result = await builtin.testEnvironment({ ...ctx, config: native(ctx) });
@@ -205,7 +238,12 @@ plugins, skills, memory, MCP servers and claude.ai connectors, in the org folder
 The managed AI connection's throwaway home, the "user settings only" switch, the ACP engine and the
 Paperclip-only MCP switch are not used. "engine" is always cli and "command" is Claude Desktop's Claude Code
 (or \`claude\` on PATH when Claude Desktop is not installed). Remote and sandbox execution targets are not
-supported. Pause the override in Settings > Adapters to go back to Paperclip's own Claude type.`;
+supported. Pause the override in Settings > Adapters to go back to Paperclip's own Claude type.
+
+Each run is a native Claude Code turn: the agent's instructions (instructionsFilePath) and a prompt template
+that names only the agent become a Claude Code agent used with --agent; each card is one conversation that
+continues every run; the message is what people wrote on the card; Paperclip's turn details, a
+bootstrapPromptTemplate and any other promptTemplate arrive as hook context beside the message.`;
 
 export function createServerAdapter() {
   return {
