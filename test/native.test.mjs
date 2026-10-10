@@ -60,6 +60,14 @@ test('opens only real session ids, in folders that exist, in Claude Desktop', as
   assert.equal(gone.reason, process.platform === 'win32' ? 'its folder is gone' : 'only on Windows so far');
 });
 
+test('a conversation Claude Desktop already has open is reported as open, not handed over again', { skip: process.platform !== 'win32' }, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'native-reg-'));
+  const id = '11111111-2222-4333-8444-555555555555';
+  fs.writeFileSync(path.join(dir, `${process.pid}.json`), JSON.stringify({ pid: process.pid, sessionId: id, status: 'idle', kind: 'interactive' }));
+  assert.deepEqual(await openInDesktop(id, os.tmpdir(), 'claude-not-run', dir), { ok: true, alreadyOpen: true });
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test('fills in the Windows basics a plugin worker starts without, keeping what is there', { skip: process.platform !== 'win32' }, () => {
   const env = windowsUserEnv({ PATH: 'C:/x', APPDATA: 'D:/mine' });
   assert.equal(env.PATH, 'C:/x');

@@ -129,7 +129,8 @@ export function OpenInClaudeDesktop({ context }) {
         setNote(null);
         try {
           const result = await open({ sessionId: c.sessionId, cwd: c.cwd });
-          setNote(result?.ok ? 'Opened in Claude Desktop.' : `Could not open it (${result?.reason ?? 'no answer'}).`);
+          setNote(result?.alreadyOpen ? 'Already open in Claude Desktop: it is in the sidebar.'
+            : result?.ok ? 'Opened in Claude Desktop.' : `Could not open it (${result?.reason ?? 'no answer'}).`);
         } catch (err) {
           setNote(`Could not open it (${message(err)}).`);
         } finally {

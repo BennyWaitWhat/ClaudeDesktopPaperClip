@@ -88,10 +88,12 @@ export function windowsUserEnv(base = process.env) {
  * under its folder. Claude Desktop names its copy local_<session id>, so handing one over twice opens the same
  * conversation instead of adding a second.
  */
-export function openInDesktop(sessionId, cwd, claude = desktopClaudeCode(windowsUserEnv())?.file ?? 'claude') {
+export function openInDesktop(sessionId, cwd, claude = desktopClaudeCode(windowsUserEnv())?.file ?? 'claude', sessionsDir = undefined) {
   if (process.platform !== 'win32') return Promise.resolve({ ok: false, reason: 'only on Windows so far' });
   if (!isSessionId(sessionId)) return Promise.resolve({ ok: false, reason: 'not a session id' });
   if (!cwd || !path.isAbsolute(String(cwd)) || !fs.existsSync(String(cwd))) return Promise.resolve({ ok: false, reason: 'its folder is gone' });
+  // Claude Desktop already has it loaded (and `claude --desktop` refuses a live session).
+  if (liveSessions(sessionsDir).some((s) => s.sessionId === sessionId && s.kind === 'interactive')) return Promise.resolve({ ok: true, alreadyOpen: true });
   // `claude --desktop` refuses to run without a real console, so it gets a hidden one of its own.
   const q = (s) => `'${String(s).replace(/'/g, "''")}'`;
   const command = `Start-Process -FilePath ${q(claude)} -ArgumentList '--desktop','--resume',${q(sessionId)} -WorkingDirectory ${q(cwd)} -WindowStyle Hidden -Wait`;
