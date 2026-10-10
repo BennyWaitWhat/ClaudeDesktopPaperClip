@@ -66,15 +66,23 @@ lives and works, and where Benny talks to them.
 - Q21 in practice: a Paperclip wake for a Claude agent ends at once without starting work; a card it was about
   that is todo or in_progress goes to backlog with a one-line note from the agent (so Paperclip's sweep leaves it
   alone), and what changed opens the agent's next Desktop turn. Cards Benny assigns in Paperclip visibly flip to
-  backlog.
+  backlog. Built and rehearsed on Haiku 2026-10-10 (`paperclip-wakes.mjs`).
+- Q7 in practice: the plugin makes each new agent's conversation (a one-line hello as that agent, no tools) and
+  hands it to Desktop at a 20-second pause in Benny's typing; Desktop switches to it once. The plugin learns of a
+  hire from the org's live activity feed, so it starts within a second of the hire. Rehearsal orgs
+  (`cdpc rehearsal …`) are left alone, so a rehearsal never reaches Benny's Desktop.
+- Desktop runs handed-over conversations in accept-edits mode even though Benny's default is bypass. The org
+  folder approves the agents' Paperclip calls only (`hooks/paperclip-allow.mjs`); switching an agent's
+  conversation to bypass stays Benny's one approval in Desktop.
+- An agent with no model set in Paperclip runs on Desktop's default model (the wizard's Chief of Staff has none
+  unless Benny picks one).
 
 ## Open questions (build details, not Benny's to decide)
 
-- Exactly what the adapter does with each kind of Paperclip wake under Q21's rule, and how the next turn is told.
-- Creating a new agent's conversation with its hello reply and handing it to Desktop with only the one switch.
-- The model an agent uses when Paperclip names none (Desktop's default, unless Paperclip sets one).
 - How Career Catchers' copy and the home copy stay in step (pull before work, push after) and where the Steward
   works.
+- Whether a hire's first Desktop turn is recorded as that hire's run when the conversation was opened from the
+  sidebar (the CLI resume keeps the agent; Desktop's own resume is checked in the fresh test).
 
 ## Out of scope
 

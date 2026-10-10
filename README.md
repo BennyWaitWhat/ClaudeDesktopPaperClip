@@ -31,6 +31,11 @@ The org folder's `.claude/settings.json` runs three hooks (`org-folder.mjs` puts
   Paperclip lets a run comment on and update only its own card freely (and up to 20 others). Partway through a
   turn, `node hooks/paperclip-card.mjs <CARD>` moves the rest of it to that card's own run.
 - **Stop**: the turn's end ends its run.
+- **PreToolUse for Bash** (`hooks/paperclip-allow.mjs`): Claude Desktop runs the conversations it is handed in
+  "accept edits" mode, so every Bash command would ask first, including the Paperclip calls agents make to hand
+  each other work while you are away. This approves those calls only (curl to this Paperclip's API and
+  `paperclip-card`, with echo, printf, jq, head, tail or sleep alongside); every other command asks as usual. To
+  run an agent's conversation in bypass mode like your own sessions, switch it in Desktop (one approval each).
 
 The turn also opens with what happened in Paperclip since the agent's last turn, and, once, with the agent's
 instructions when they were edited in Paperclip since the conversation got them.
@@ -53,10 +58,22 @@ sets for it. Claude Code loads it once per conversation as the system prompt; no
 file of that name that is not the agent's is never overwritten. The Paperclip skills the org's agents have
 are copied into `.claude/skills/`.
 
-## Org folders
+## Org folders and the team in Claude Desktop
 
-Creating an org makes its folder: `<where new orgs' folders go>\<org name>`, on the Desktop until you choose
-another place. A folder already there under that name is used as it is.
+Creating an org makes its folder, `<where new orgs' folders go>\<org name>` (on the Desktop until you choose
+another place), and moves the org to Claude Desktop. From then on the plugin keeps the folder in step with
+Paperclip (`org-sync.mjs`), at once when Paperclip's live activity feed shows an agent hired, changed or removed
+(a hire reaches it in well under a second), and once a minute besides:
+
+- each Claude agent's file, the skills, the settings (the hooks above, and the Chief of Staff as the folder's
+  default agent, so a new chat there is the Chief of Staff), and `.claude/paperclip-team.md`: the team and each
+  member's Desktop conversation, which agents use to hand each other work;
+- each agent's one conversation, made with a one-line hello as that agent (one turn, no tools: setup, never work;
+  its first reply also keeps the conversation its own agent), then handed to Claude Desktop's sidebar at a pause
+  in your typing. Desktop switches to a conversation it is handed, once per new agent.
+
+Older orgs stay as they are until you move them: Settings > Org folder > **Move to Claude Desktop**. Until then
+Paperclip's wakes for their Claude agents stop with a note saying so.
 
 Settings > Org folder, in each org:
 
@@ -104,9 +121,13 @@ remove it. Settings > Plugins: disable or remove Claude Desktop (org folders sta
 
 ## After editing
 
-- `index.mjs`, `desktop.mjs`, `desktop-turn.mjs`, `paperclip-wakes.mjs`: reload the adapter
-  (`POST /api/adapters/claude_local/reload`). The hooks run fresh each time and need nothing.
-- `plugin/`: reload the plugin (`POST /api/plugins/claude-desktop-paperclip/upgrade`), then refresh the page.
+- The adapter's files (`index.mjs`, `desktop-turn.mjs`, `paperclip-wakes.mjs`, `desktop-orgs.mjs`,
+  `desktop.mjs`): reload the adapter (`POST /api/adapters/claude_local/reload`).
+- `plugin/`: Paperclip reloads the plugin by itself when a file there changes (its dev watcher), so don't edit
+  `plugin/` while a new org's conversations are being made: a reload stops a hello partway. The plugin's other
+  files (`org-sync.mjs`, `agent-files.mjs`, `org-folder.mjs` and the rest at the top level) are not watched:
+  after editing them, touch `plugin/worker.js` and check that the worker process restarted.
+- The hooks run fresh each time and need nothing.
 
 ## Tests
 
@@ -115,6 +136,10 @@ remove it. Settings > Plugins: disable or remove Claude Desktop (org folders sta
 - `node scripts/desktop-turn-probe.mjs --org <org id>`: a live check against the running Paperclip with
   throwaway agents and cards, no model calls: Desktop turns become runs, card-tied runs can comment and
   update, back-to-back turns, and clean-up.
+- `node scripts/org-rehearsal.mjs`: a live rehearsal on Haiku (a few turns) with a throwaway org named
+  `cdpc rehearsal …`, which the plugin leaves alone, so nothing goes to Claude Desktop: agent files, hellos,
+  a card the board gives in Paperclip waiting for the Cashier, and the Cashier's next turn (in accept-edits mode)
+  taking it to done. `--keep` leaves it for a look; `--clean <org id>` removes it.
 
 ## Limits
 

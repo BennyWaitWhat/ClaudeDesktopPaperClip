@@ -175,11 +175,26 @@ Tested live on 2026-10-10 with `scripts/desktop-turn-probe.mjs` (19 checks, no m
 6. **Cards waiting for a Desktop agent sit in backlog**: a backlog assignment wakes nothing and the stranded-work
    sweep only looks at todo, in_progress and in_review. A turn that takes a card ends with it done, in_review
    (with a reviewer), blocked (with a blocker or a question), or back in backlog, never todo or in_progress.
-7. **Plugins don't hear about hires or instruction edits.** Setting up a new agent's Desktop conversation and
-   following instruction edits needs a check on a timer (a plugin job).
+7. **Plugin events miss hires and instruction edits, but the org's live activity feed has them.** The hire route
+   (which the setup wizard uses) announces nothing to plugins, but every activity goes to
+   `ws://<Paperclip>/api/companies/<id>/events/ws` as `activity.logged` (open to the board in local_trusted mode):
+   `agent.hire_created` arrived 46 ms after a hire (2026-10-10). The plugin listens there, with a one-minute check
+   besides.
 8. **Recurring jobs**: the Desktop scheduled task can call `POST /api/routines/:id/run` on the paused Paperclip
    routine, so Paperclip's history shows every run and its card.
 
-Still open: wakes Paperclip starts by itself for a Claude agent (a card assigned as todo, a comment written in
-Paperclip, an answered question card, recovery). The adapter gets them; what it does with them waits on Benny's
-answer to the grill question about things he does in Paperclip.
+Found in the Haiku rehearsals (`scripts/org-rehearsal.mjs`, 2026-10-10, 25 of 25 at the end):
+
+9. **Paperclip's own wakes for a Claude agent end at once and wait for Desktop** (grill Q21): the card goes to
+   backlog with "Waiting for my next turn in Claude Desktop." and into the agent's Desktop inbox, which its next
+   turn opens with. Seen: a card the board assigned as todo, then taken to done in the Cashier's next turn.
+10. **A wake folds into the agent's run on the same card that is still queued or running.** Folded into a queued
+    run, it takes that run over (Paperclip merges the wake's reason into it); folded into one already running (one
+    of Paperclip's own, which ends at once), the Desktop turn waits for it and asks again.
+11. **A run on a card that ends with the card still in progress gets a repair wake** (`issue_disposition_repair`),
+    which waits for Desktop like any other. So a turn leaves its cards done, in review, blocked or in backlog,
+    and moving partway to another card (`paperclip-card`) is for a different card only.
+12. **Claude Desktop runs a conversation it is handed in "accept edits" mode** (it turns bypass into accept edits
+    for imported conversations), so Bash asks first: the org folder's PreToolUse hook approves the agents'
+    Paperclip calls only.
+13. **Paperclip reloads a local plugin when its files change** (its dev watcher), within a second.
