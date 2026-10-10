@@ -1,7 +1,7 @@
 // Claude Desktop helpers shared by the adapter (index.mjs) and the plugin (plugin/worker.js): finding the Claude
 // Code that Claude Desktop installed, reading Claude Code's live-session registry, handing a conversation to
 // Claude Desktop's sidebar, and closing Claude Desktop's loaded copy of one.
-import { spawn, spawnSync } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -52,7 +52,8 @@ export function liveSessions(dir = path.join(os.homedir(), '.claude', 'sessions'
       process.kill(s.pid, 0); // throws when the process is gone
       out.push({
         pid: s.pid, sessionId: s.sessionId, status: s.status, kind: s.kind, hostSessionId: s.hostSessionId,
-        entrypoint: s.entrypoint, startedAt: s.startedAt, procStart: s.procStart,
+        entrypoint: s.entrypoint, startedAt: s.startedAt, procStart: s.procStart, cwd: s.cwd,
+        messagingSocketPath: s.messagingSocketPath,
       });
     } catch { /* stale or unreadable */ }
   }
@@ -65,13 +66,49 @@ export const isSessionId = (value) => UUID.test(String(value ?? ''));
 const isAlive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/** Run a short PowerShell command without holding up the process that asks (Paperclip's server). */
+function powershell(command, timeout = 15_000) {
+  return new Promise((resolve) => {
+    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], { encoding: 'utf8', windowsHide: true, timeout, env: windowsUserEnv() },
+      (_err, stdout) => resolve(String(stdout ?? '').trim()));
+  });
+}
+
 /** When Windows started a process, in the form Claude Code records it (procStart, a FILETIME), or null. */
-export function processStartTime(pid) {
+export async function processStartTime(pid) {
   if (process.platform !== 'win32' || !Number.isInteger(pid)) return null;
-  const r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `(Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToFileTimeUtc()`],
-    { encoding: 'utf8', windowsHide: true, timeout: 15_000, env: windowsUserEnv() });
-  const value = String(r.stdout ?? '').trim();
+  const value = await powershell(`(Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToFileTimeUtc()`);
   return /^\d+$/.test(value) ? value : null;
+}
+
+const IDLE_PROBE = `Add-Type -TypeDefinition @'
+using System; using System.Runtime.InteropServices;
+public static class PaperclipIdle {
+  [StructLayout(LayoutKind.Sequential)] struct Info { public uint Size; public uint Time; }
+  [DllImport("user32.dll")] static extern bool GetLastInputInfo(ref Info info);
+  public static long Ms() { var i = new Info(); i.Size = (uint)Marshal.SizeOf(i); if (!GetLastInputInfo(ref i)) return -1; return (long)(uint)((uint)Environment.TickCount - i.Time); }
+}
+'@
+[PaperclipIdle]::Ms()`;
+
+/** Milliseconds since the last keyboard or mouse input on this PC, or null when it cannot tell. */
+export async function idleMs() {
+  if (process.platform !== 'win32') return null;
+  const value = Number.parseInt(await powershell(IDLE_PROBE), 10);
+  return Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+/**
+ * Hand a new conversation to Claude Desktop at the next pause in your typing (no keyboard or mouse for `quietMs`),
+ * because Desktop switches to a conversation it is handed. Waits at most `maxWaitMs`, then hands it over anyway.
+ */
+export async function handOffWhenQuiet(sessionId, cwd, { open = openInDesktop, idle = idleMs, quietMs = 20_000, maxWaitMs = 15 * 60_000, pollMs = 5_000 } = {}) {
+  for (const end = Date.now() + maxWaitMs; Date.now() < end;) {
+    const ms = await idle();
+    if (ms === null || ms >= quietMs) break;
+    await sleep(Math.max(pollMs, quietMs - ms));
+  }
+  return open(sessionId, cwd);
 }
 
 /**

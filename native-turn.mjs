@@ -70,6 +70,7 @@ export const PAPERCLIP_NOTES = (name) => `## Working through Paperclip
 
 You are ${name}, an agent in a Paperclip org, working as a Claude Code session in the folder Paperclip gives the card.
 - Every Paperclip card you work on is its own conversation here, named "<card> · ${name}". Its messages are the board's own words from the card, or the card itself when it is new. Paperclip's details for each turn (the card, what changed, what the wake needs) arrive with the message as context: follow them.
+- While Claude Desktop has the conversation open, Paperclip's turn arrives there as a message from another session named Paperclip: the board's words, then Paperclip's details and the run id to send as X-Paperclip-Run-Id. Treat it as the card's next message.
 - Your agent folder is $AGENT_HOME: relative file references in your instructions (./HEARTBEAT.md, ./SOUL.md, ./TOOLS.md and the rest) resolve there.
 - When you post a comment on the card, end your turn with exactly that comment's text and nothing after it, so the card and this conversation read the same. When a turn needs no comment, end with one short line saying what you did.`;
 
@@ -238,11 +239,12 @@ export async function prepareNativeTurn(ctx, { context = ctx.context, utils, run
   const definition = agentDefinition({ agent: ctx.agent, instructions: instructions.text, contract: rulesInAgent ? utils.renderTemplate(template, templateData) : '' });
   const placed = await placeAgent({ cwd, agentId: ctx.agent?.id, definition, runtimeDir: runDir });
   const sections = { utils, context, config, templateData, rulesInAgent };
-  const hook = await writeTurnHook(runDir, { full: turnContext({ ...sections, resumed: false }), delta: turnContext({ ...sections, resumed: true }) });
+  const details = { full: turnContext({ ...sections, resumed: false }), delta: turnContext({ ...sections, resumed: true }) };
+  const hook = await writeTurnHook(runDir, details);
   const wake = utils.normalizePaperclipWakePayload(context?.paperclipWake);
   const message = humanMessage(wake, { newConversation: !resume, issue: wake?.issue ?? null });
   return {
-    cwd, resume, runtime, placed, message, warning: instructions.error,
+    cwd, resume, runtime, placed, message, details, card: wake?.issue?.identifier ?? null, warning: instructions.error,
     args: [...placed.args, '--settings', hook.settings],
     overrides: { instructionsFilePath: '', promptTemplate: NATIVE_MESSAGE_TEMPLATE, bootstrapPromptTemplate: '' },
     context: nativeContext(context, message, utils),
