@@ -33,6 +33,9 @@ Started 2026-10-09 (`/grill-me-general` "on everything"). Benny's answers are qu
 | Q18 | What should work first? | A new test org built from the beginning: "Lemonade Stand", whose Chief of Staff has three reports: Cashier, Lemonade Maker, Supplies Person | "From the beginning. A test org called lemonade stand. chief of staff has 3 reports - cashier, lemonade maker, supplies person" |
 | Q19 | Which model for the Lemonade Stand agents? | A model with thinking, at medium effort: Haiku 5.5 (it thinks) | "whichever has thinking. med effort." |
 | Q20 | Who drives the test? | Benny, the real way: he created Lemonade Stand (LEM, 2026-10-10 04:16Z) in Paperclip's new-org wizard himself; its agents are paused as they appear until the Desktop version is ready | "ok. i began" |
+| Q20 result | He answered the Chief of Staff in Paperclip's onboarding card: why? | Only because Desktop showed nothing: making the org must put its folder and the Chief of Staff's conversation in Desktop's sidebar at once, ready to talk to. Telling it in Paperclip was a deliberate test | "i only did that because i didnt see the claude folder and the agent open on my claude desktop. so just for extra info, i told it do it from paperclip to test. if i didnt you wouldnt have known. i expected you to be forward thinking." / "aka DIDNT have a place to tell it to make 3 agents except thru paperclip because when it was created, i didnt see the session started from claudedesktop end." |
+| Q20 next | Keep Lemonade Stand for the test? | No: a fresh test org once the Desktop version is ready. Lemonade Stand was archived 2026-10-10 (reversible) | "ok, maybe should start with fresh test when you're ready and done." |
+| Q20 fix | The wizard takeover (an agentless org's Dashboard offer hijacking the open wizard) | Fixed in Paperclip's page instead of working around it, re-applied by the plugin on every start (2f66ef4); work is pushed as it lands | "stop being lazy and fix all that then. i dont even see you pushing to https://github.com/BennyWaitWhat/ClaudeDesktopPaperClip" |
 | Q6 | How does he start talking to a specific agent? | Click its one conversation in the sidebar, under the org's folder; a brand-new chat in the org folder is the Chief of Staff; setup gives each agent one short hello reply, once, so it keeps its own identity | picked "Click it in the sidebar (Recommended)" |
 
 ## Verified facts (checked in Claude Desktop 2.31226.1 and Claude Code 2.1.295, 2026-10-09)
@@ -51,6 +54,12 @@ Started 2026-10-09 (`/grill-me-general` "on everything"). Benny's answers are qu
 - **Routines:** Career Catchers has 5 (Morning sweep, Apply window prep, Morning brief, Friday scorecard, weekly repo health check). The first four already failed once on paused agents; Monday's runs will too.
 - **Hires:** route `POST /api/companies/:id/agent-hires`; approval gate is the company's `require_board_approval_for_new_agents`; the hire route emits no plugin event (only approvals do); a new Claude hire gets no model, a one-line AGENTS.md unless the hirer supplies one, and Paperclip's core skills only for the top role.
 - **Pressure signals:** many recent runs failed on the subscription's session limit and on expired sign-ins; weekly usage was 87% on 2026-10-09.
+
+## Paperclip's workflows
+
+Mapped end to end from its source on 2026-10-10: `PAPERCLIP-WORKFLOWS.md` (new org, agents, wakes and runs,
+cards, routines, chat, plugins), with what it means for the Desktop version at the end. Benny: "i expected you to
+have understood and read thru all the workflows of paperclip."
 
 ## What this flips
 
