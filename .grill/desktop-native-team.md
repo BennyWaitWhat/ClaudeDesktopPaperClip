@@ -1,6 +1,7 @@
 # Grill: a Paperclip team that lives in Claude Desktop
 
-Started 2026-10-09 (`/grill-me-general` "on everything"). Benny's answers are quoted word for word. Updated after every answer.
+Started 2026-10-09 (`/grill-me-general` "on everything"), finished 2026-10-10 after 23 questions. Benny's answers are
+quoted word for word in the record below; this top part is the distilled result.
 
 ## Intent
 
@@ -8,7 +9,72 @@ Started 2026-10-09 (`/grill-me-general` "on everything"). Benny's answers are qu
 
 > "im trying to get claude desktop claude code to adopt how it works and populate the ui kinda thing." (Q3)
 
-## Decisions
+> "Our version of paperclip is going to be claude desktop native." (Q13)
+
+Paperclip stays the place where the team is set up and watched; Claude Desktop's Claude Code is where every agent
+lives and works, and where Benny talks to them.
+
+## Constraints
+
+- Paperclip never starts work for a Claude agent (Q4). Agents that aren't Claude (GA Pardon's Verifier on Codex;
+  Gemini later) keep Paperclip's own way (Q13).
+- Everything stays paused until the Desktop version is ready (Q17); work waits while Desktop is closed (Q3).
+- Only this Claude Desktop profile is in scope (Q13).
+- Standing rules: Benny clicks Send and Submit himself; push only to the two private repos' `main`, never
+  force-push; keep tests cheap (no model calls where possible, Haiku otherwise); fix problems found instead of
+  asking around them, and push each working step.
+
+## Key decisions
+
+1. **One Desktop conversation per agent** (Q2), in the org's folder; clicking it in the sidebar is how Benny talks to
+   it; a new chat in the org folder is the Chief of Staff; setup gives each conversation one short hello reply so
+   it keeps its agent (Q6).
+2. **Making an org or an agent in Paperclip puts it in Desktop at once** (Q7, Q20): the org folder and the agent's
+   conversation, with one Desktop switch; the hiring agent brings its hires in. Why: Benny answered in Paperclip's
+   onboarding card only because Desktop showed nothing.
+3. **Hand-offs are a direct Desktop message plus a card** (Q5); a card waiting for an agent sits in backlog, where
+   Paperclip neither wakes the agent nor sweeps the card.
+4. **Every Desktop turn is a Paperclip run** (Q10, Q11), opened from Desktop by the org folder's hook and tied to
+   the card the turn is about, with its log and tokens; direct chats are runs, never tickets. Tested live, 19 of 19
+   (`scripts/desktop-turn-probe.mjs`).
+5. **What Benny does in Paperclip waits for the agent's next Desktop turn**, which sees it first (Q21).
+6. **Instruction changes apply from the agent's next turn**, handed over once; agent `.md` files are the carrier
+   (Q14).
+7. **Recurring jobs** are set up in Paperclip or by telling an agent; Desktop scheduled tasks run them; Paperclip's
+   copy stays paused and shows each run; the latest edit wins (Q16).
+8. **Projects live inside the org folder**; one that lives elsewhere is copied in; Career Ops becomes Career
+   Catchers' own copy, kept in step through GitHub (Q8, Q9, Q23).
+9. **Order**: a fresh test org (Chief of Staff, Cashier, Lemonade Maker, Supplies Person; Haiku 5.5 at medium
+   effort; Benny drives it through the real UI), then Career Catchers, then GA Pardon and CloudFlare on Benny's go
+   (Q18-Q20, Q22).
+
+## Surfaced assumptions
+
+- "Paperclip shows runs from Desktop" assumed Paperclip can record outside work. It can't: a run exists only when
+  Paperclip runs the agent's adapter, so the adapter became the bridge that records the Desktop turn.
+- "Agents write on cards with their own key" assumed any key works. A run must be tied to a card to comment on or
+  update cards, so turns tie to the card they name, and `paperclip-card` moves a turn to a card partway.
+- Paperclip's automatic machinery (assignment wakes, the stranded-work sweep, repair wakes) assumes Paperclip runs
+  the agents; left alone it blocks cards that wait for Desktop (LEM-1). Backlog for waiting cards, and Paperclip's
+  own wakes ending at once, keep it quiet.
+- The per-org Claude connection Paperclip's wizard asks for is redundant for Desktop agents (tested); only the
+  wizard needs it.
+- Paperclip's Dashboard could hijack an open new-org wizard for an agentless org; fixed in Paperclip's page.
+
+## Open questions (build details, not Benny's to decide)
+
+- Exactly what the adapter does with each kind of Paperclip wake under Q21's rule, and how the next turn is told.
+- Creating a new agent's conversation with its hello reply and handing it to Desktop with only the one switch.
+- The model an agent uses when Paperclip names none (Desktop's default, unless Paperclip sets one).
+- How Career Catchers' copy and the home copy stay in step (pull before work, push after) and where the Steward
+  works.
+
+## Out of scope
+
+- Paperclip's own chat (Q1, Q11); a usage stop (liked, not now; 98% if ever, Q12); stall detection (Q15); the other
+  two Desktop profiles and Gemini (Q13); Paperclip-driven Claude turns (the 2026-10-09 build).
+
+## Decisions (question by question)
 
 | # | Question | Answer | Benny's words |
 |---|----------|--------|---------------|
@@ -36,6 +102,9 @@ Started 2026-10-09 (`/grill-me-general` "on everything"). Benny's answers are qu
 | Q20 result | He answered the Chief of Staff in Paperclip's onboarding card: why? | Only because Desktop showed nothing: making the org must put its folder and the Chief of Staff's conversation in Desktop's sidebar at once, ready to talk to. Telling it in Paperclip was a deliberate test | "i only did that because i didnt see the claude folder and the agent open on my claude desktop. so just for extra info, i told it do it from paperclip to test. if i didnt you wouldnt have known. i expected you to be forward thinking." / "aka DIDNT have a place to tell it to make 3 agents except thru paperclip because when it was created, i didnt see the session started from claudedesktop end." |
 | Q20 next | Keep Lemonade Stand for the test? | No: a fresh test org once the Desktop version is ready. Lemonade Stand was archived 2026-10-10 (reversible) | "ok, maybe should start with fresh test when you're ready and done." |
 | Q20 fix | The wizard takeover (an agentless org's Dashboard offer hijacking the open wizard) | Fixed in Paperclip's page instead of working around it, re-applied by the plugin on every start (2f66ef4); work is pushed as it lands | "stop being lazy and fix all that then. i dont even see you pushing to https://github.com/BennyWaitWhat/ClaudeDesktopPaperClip" |
+| Q21 | He does something for an agent inside Paperclip (assigns it a card, comments on its card, answers a question it asked there): what happens in Desktop? | It waits for the agent's next turn in Desktop, which sees it first; nothing starts on its own. Paperclip's own wakes for a Claude agent end at once: a card waiting for the agent goes to backlog with a note, and what changed is handed to the agent's next turn | picked "Waits for next turn (Recommended)" |
+| Q22 | Once the fresh test org works, in what order do the real orgs move over? | Career Catchers first, right after the fresh test passes (its job-search work has been on hold since 2026-10-09); GA Pardon and CloudFlare follow on Benny's go | picked "Career Catchers first (Recommended)" |
+| Q23 | Career Catchers' agents need the Career Ops files in their org folder: a separate copy or a link to the one folder? | A separate copy inside the org folder, kept in step through GitHub (as in Q8/Q9); the link was offered as the recommendation and not taken | picked "Separate copy, synced" |
 | Q6 | How does he start talking to a specific agent? | Click its one conversation in the sidebar, under the org's folder; a brand-new chat in the org folder is the Chief of Staff; setup gives each agent one short hello reply, once, so it keeps its own identity | picked "Click it in the sidebar (Recommended)" |
 
 ## Verified facts (checked in Claude Desktop 2.31226.1 and Claude Code 2.1.295, 2026-10-09)
@@ -70,6 +139,3 @@ What was built until now made Paperclip the engine: it woke an agent and ran the
 - **Survives the new picture:** the session hook that gives a Desktop conversation its agent's own Paperclip key (`hooks/desktop-session.mjs`, `org-folder.mjs`); agent files built from Paperclip's setup (`native-turn.mjs` placeAgent/agentDefinition); starting a conversation with no model call (`hooks/hold-first-message.mjs`).
 - **Conflicts with "Paperclip never starts work":** Paperclip-driven turns (the adapter's execute), delivery into Desktop's open copy from Paperclip (`open-copy.mjs`), closing Desktop's copy before a run, handing new card conversations to Desktop.
 
-## Open questions
-
-(filled in as the grill goes)
