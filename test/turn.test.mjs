@@ -290,3 +290,17 @@ test("only Claude Desktop's idle copy is closed, and a reused process id is neve
   assert.deepEqual(ended, [process.pid]);
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test('a Desktop-turn wake is recorded, never run: Claude is not started for it', async () => {
+  let ran = false;
+  const recorded = [];
+  const execute = createExecute({
+    runBuiltin: async () => { ran = true; return { exitCode: 0 }; },
+    recordTurn: async (ctx) => { recorded.push(ctx.runId); return { exitCode: 0, summary: 'recorded' }; },
+    folderFor: async () => null,
+  });
+  const result = await execute({ runId: 'r1', agent: { id: 'a1', name: 'Cashier' }, context: { wakeReason: 'desktop_turn' }, config: {}, onLog: async () => {} });
+  assert.equal(result.summary, 'recorded');
+  assert.deepEqual(recorded, ['r1']);
+  assert.equal(ran, false);
+});

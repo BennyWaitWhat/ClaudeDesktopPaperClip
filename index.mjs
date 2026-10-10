@@ -39,6 +39,7 @@ const sibling = (file) => import(new URL(`./${file}${new URL(import.meta.url).se
 const desktop = await sibling('desktop.mjs');
 export const { closeDesktopCopies, conversationCopies, desktopClaudeCode, isIdleDesktopCopy, liveSessions, openInDesktop, windowsUserEnv } = desktop;
 const { prepareNativeTurn } = await sibling('native-turn.mjs');
+const { DESKTOP_TURN_REASON, recordDesktopTurn, turnsDir } = await sibling('desktop-turn.mjs');
 
 /** Folder of a @paperclipai package next to the running Paperclip (realpath, so the server's own copy). */
 export function findPaperclipPackage(name, starts = [
@@ -174,8 +175,12 @@ const CLOSED_NOTE = "Closed Claude Desktop's loaded copy of this conversation; D
 export function createExecute({
   runBuiltin = (ctx) => builtin.execute(ctx), open = openInDesktop, copiesOf = conversationCopies, close = closeDesktopCopies,
   folderFor = runFolder, runBase = RUN_BASE, claudeConfig, pollMs = 5000,
+  recordTurn = (ctx) => recordDesktopTurn(ctx, { dir: turnsDir(paperclipPaths.resolvePaperclipInstanceRoot()) }),
 } = {}) {
   return async function execute(ctx) {
+    // A turn the agent is taking in Claude Desktop: record it, never start Claude for it (desktop-turn.mjs).
+    if (ctx.context?.wakeReason === DESKTOP_TURN_REASON) return recordTurn(ctx);
+
     const log = (line, stream = 'stdout') => ctx.onLog(stream, `[native] ${line}\n`);
     // One writer per conversation. Wait while a turn is in progress in it anywhere (or it is open in a terminal);
     // Claude Desktop's idle copy is closed instead, and Desktop loads the conversation again from disk. A copy
