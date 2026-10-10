@@ -190,7 +190,7 @@ test('execute: one conversation per card, the message alone, the rest as hook co
   const seen = [];
   const opened = [];
   const execute = createExecute({
-    runBase, claudeConfig, folderFor: async () => null, live: () => [],
+    runBase, claudeConfig, folderFor: async () => null, copiesOf: async () => [],
     open: async (id, cwd) => { opened.push([id, cwd]); return { ok: true }; },
     runBuiltin: async (ctx) => {
       const settings = ctx.config.extraArgs[ctx.config.extraArgs.indexOf('--settings') + 1];
@@ -229,4 +229,64 @@ test('execute: one conversation per card, the message alone, the rest as hook co
   assert.equal(opened.length, 1, 'a continued conversation is not handed over again');
   assert.ok(logs.some((l) => l.includes(`Continuing this card's conversation (${SESSION})`)));
   for (const dir of [org, claudeConfig, runBase]) fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("one writer per conversation: Claude Desktop's idle copy is closed, a turn in progress is waited for", async () => {
+  const desktopIdle = { pid: 11, sessionId: SESSION, entrypoint: 'claude-desktop', kind: 'interactive', status: 'idle' };
+  const desktopBusy = { ...desktopIdle, status: 'busy' };
+  const terminal = { ...desktopIdle, pid: 12, entrypoint: 'cli' };
+  const run = async (sequence) => {
+    const steps = [...sequence];
+    const closedCalls = [];
+    const logs = [];
+    let ran = 0;
+    const execute = createExecute({
+      runBase: tmp('runs'), folderFor: async () => null, open: async () => ({ ok: true }), pollMs: 1,
+      copiesOf: async () => (steps.length > 1 ? steps.shift() : steps[0]),
+      close: async (copies) => { const ids = copies.filter((c) => c.status === 'idle' && c.entrypoint === 'claude-desktop').map((c) => c.pid); closedCalls.push(ids); return ids; },
+      runBuiltin: async () => { ran++; return { exitCode: 0, sessionId: SESSION, sessionParams: { sessionId: SESSION } }; },
+    });
+    await execute({
+      runId: 'r', agent: { id: 'a1', name: 'Agent' }, runtime: { sessionId: SESSION }, config: {}, onLog: async (_s, l) => logs.push(l),
+      context: { paperclipWake: wake(), paperclipWorkspace: { cwd: tmp('org'), source: 'agent_home' } },
+    });
+    return { closedCalls, logs, ran };
+  };
+
+  let r = await run([[desktopIdle], []]);
+  assert.deepEqual(r.closedCalls, [[11], []], 'closed before the run; nothing left to close after');
+  assert.ok(r.logs.some((l) => l.includes("Closed Claude Desktop's loaded copy")));
+  assert.equal(r.ran, 1);
+
+  r = await run([[desktopBusy], [desktopBusy], []]);
+  assert.deepEqual(r.closedCalls, [[]], 'a turn in progress is never closed');
+  assert.ok(r.logs.some((l) => l.includes('the run starts when it is free')));
+
+  r = await run([[terminal], []]);
+  assert.deepEqual(r.closedCalls, [[]], 'a terminal session is waited for, never closed');
+
+  r = await run([[desktopIdle]]);
+  assert.deepEqual(r.closedCalls, [[11], [11]], 'Desktop loading it again at once: closed once before, once after, no loop');
+  assert.equal(r.ran, 1);
+  for (const d of fs.readdirSync(os.tmpdir()).filter((d) => /^turn-(runs|org)-/.test(d))) fs.rmSync(path.join(os.tmpdir(), d), { recursive: true, force: true });
+});
+
+test("only Claude Desktop's idle copy is closed, and a reused process id is never mistaken for it", async () => {
+  const { closeDesktopCopies, conversationCopies, isIdleDesktopCopy } = await import('../desktop.mjs');
+  const dir = tmp('reg');
+  const me = { pid: process.pid, sessionId: SESSION, entrypoint: 'claude-desktop', kind: 'interactive', status: 'idle', procStart: '123' };
+  fs.writeFileSync(path.join(dir, `${process.pid}.json`), JSON.stringify(me));
+  assert.equal((await conversationCopies(SESSION, { sessionsDir: dir, startTime: () => '123' })).length, 1);
+  assert.equal((await conversationCopies(SESSION, { sessionsDir: dir, startTime: () => '999' })).length, 0, 'that pid started at another time: another process');
+  assert.equal((await conversationCopies('other', { sessionsDir: dir, startTime: () => '123' })).length, 0);
+  assert.equal(isIdleDesktopCopy(me), true);
+  assert.equal(isIdleDesktopCopy({ ...me, status: 'busy' }), false);
+  assert.equal(isIdleDesktopCopy({ ...me, status: 'waiting' }), false, 'a question waiting for you is left alone');
+  assert.equal(isIdleDesktopCopy({ ...me, entrypoint: 'cli' }), false);
+  const killed = [];
+  const gone = new Set();
+  const ended = await closeDesktopCopies([me, { ...me, pid: 7, status: 'busy' }], { kill: (pid) => { killed.push(pid); gone.add(pid); }, alive: (pid) => !gone.has(pid) });
+  assert.deepEqual(killed, [process.pid]);
+  assert.deepEqual(ended, [process.pid]);
+  fs.rmSync(dir, { recursive: true, force: true });
 });

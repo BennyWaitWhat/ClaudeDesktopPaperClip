@@ -1,7 +1,7 @@
 // Claude Desktop helpers shared by the adapter (index.mjs) and the plugin (plugin/worker.js): finding the Claude
-// Code that Claude Desktop installed, reading Claude Code's live-session registry, and handing a conversation
-// to Claude Desktop's sidebar.
-import { spawn } from 'node:child_process';
+// Code that Claude Desktop installed, reading Claude Code's live-session registry, handing a conversation to
+// Claude Desktop's sidebar, and closing Claude Desktop's loaded copy of one.
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -50,7 +50,10 @@ export function liveSessions(dir = path.join(os.homedir(), '.claude', 'sessions'
     try {
       const s = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
       process.kill(s.pid, 0); // throws when the process is gone
-      out.push({ pid: s.pid, sessionId: s.sessionId, status: s.status, kind: s.kind, hostSessionId: s.hostSessionId });
+      out.push({
+        pid: s.pid, sessionId: s.sessionId, status: s.status, kind: s.kind, hostSessionId: s.hostSessionId,
+        entrypoint: s.entrypoint, startedAt: s.startedAt, procStart: s.procStart,
+      });
     } catch { /* stale or unreadable */ }
   }
   return out;
@@ -58,6 +61,50 @@ export function liveSessions(dir = path.join(os.homedir(), '.claude', 'sessions'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const isSessionId = (value) => UUID.test(String(value ?? ''));
+
+const isAlive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** When Windows started a process, in the form Claude Code records it (procStart, a FILETIME), or null. */
+export function processStartTime(pid) {
+  if (process.platform !== 'win32' || !Number.isInteger(pid)) return null;
+  const r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `(Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToFileTimeUtc()`],
+    { encoding: 'utf8', windowsHide: true, timeout: 15_000, env: windowsUserEnv() });
+  const value = String(r.stdout ?? '').trim();
+  return /^\d+$/.test(value) ? value : null;
+}
+
+/**
+ * The processes that have a conversation loaded right now: Claude Desktop's copy, a terminal session, a run. An
+ * entry whose process id now belongs to another process (it started at another time) is not one of them.
+ */
+export async function conversationCopies(sessionId, { sessionsDir, startTime = processStartTime } = {}) {
+  const copies = [];
+  for (const s of liveSessions(sessionsDir)) {
+    if (s.sessionId !== sessionId) continue;
+    if (s.procStart !== undefined && String(await startTime(s.pid)) !== String(s.procStart)) continue;
+    copies.push(s);
+  }
+  return copies;
+}
+
+/** Claude Desktop's own copy of a conversation, loaded and waiting for you: no turn in progress, no question open. */
+export const isIdleDesktopCopy = (s) => s.entrypoint === 'claude-desktop' && s.kind === 'interactive' && s.status === 'idle';
+
+/**
+ * Close Claude Desktop's loaded copies of a conversation (isIdleDesktopCopy), as Desktop does itself when it
+ * unloads an idle one: the process ends, nothing in the conversation is lost, and Desktop loads it from disk
+ * again the next time it is shown. Returns the process ids that ended.
+ */
+export async function closeDesktopCopies(copies, { kill = (pid) => process.kill(pid), alive = isAlive, waitMs = 5000 } = {}) {
+  const closing = [];
+  for (const s of copies) {
+    if (!isIdleDesktopCopy(s)) continue;
+    try { kill(s.pid); closing.push(s.pid); } catch { /* already gone */ }
+  }
+  for (const end = Date.now() + waitMs; closing.some(alive) && Date.now() < end;) await sleep(100);
+  return closing.filter((pid) => !alive(pid));
+}
 
 /**
  * The basic Windows user environment, filled in where `base` lacks it. Paperclip starts plugin workers with

@@ -26,7 +26,8 @@
 //
 // Claude Desktop sees the agents' sessions: each session is named "<card> · <agent>", and a run that starts a
 // new conversation hands it to Claude Desktop (claude --desktop --resume), which lists it in the sidebar under
-// that folder. A run waits while you are mid-turn in the agent's session in Claude Desktop.
+// that folder. A conversation has one writer at a time: a run waits while you are mid-turn in it anywhere, and
+// closes Claude Desktop's idle loaded copy first, so Desktop loads it again from disk, run turn included.
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
@@ -36,7 +37,7 @@ import { pathToFileURL } from 'node:url';
 // Same cache-busting query as this file, so Paperclip's adapter reload also reloads the shared helpers.
 const sibling = (file) => import(new URL(`./${file}${new URL(import.meta.url).search}`, import.meta.url).href);
 const desktop = await sibling('desktop.mjs');
-export const { desktopClaudeCode, liveSessions, openInDesktop, windowsUserEnv } = desktop;
+export const { closeDesktopCopies, conversationCopies, desktopClaudeCode, isIdleDesktopCopy, liveSessions, openInDesktop, windowsUserEnv } = desktop;
 const { prepareNativeTurn } = await sibling('native-turn.mjs');
 
 /** Folder of a @paperclipai package next to the running Paperclip (realpath, so the server's own copy). */
@@ -167,18 +168,29 @@ const native = (ctx, extra = {}) => nativeConfig(ctx.config, { agentId: ctx.agen
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const priorSessionId = (ctx) => ctx.runtime?.sessionParams?.sessionId ?? ctx.runtime?.sessionId ?? null;
 
+const CLOSED_NOTE = "Closed Claude Desktop's loaded copy of this conversation; Desktop shows this turn when it loads the conversation again.";
+
 /** A run, with the pieces it calls passed in (tests and smoke runs swap them). */
 export function createExecute({
-  runBuiltin = (ctx) => builtin.execute(ctx), open = openInDesktop, live = liveSessions, folderFor = runFolder,
-  runBase = RUN_BASE, claudeConfig, pollMs = 5000,
+  runBuiltin = (ctx) => builtin.execute(ctx), open = openInDesktop, copiesOf = conversationCopies, close = closeDesktopCopies,
+  folderFor = runFolder, runBase = RUN_BASE, claudeConfig, pollMs = 5000,
 } = {}) {
   return async function execute(ctx) {
     const log = (line, stream = 'stdout') => ctx.onLog(stream, `[native] ${line}\n`);
-    // Never run beside you: while you are mid-turn in this agent's session in Claude Desktop, wait.
+    // One writer per conversation. Wait while a turn is in progress in it anywhere (or it is open in a terminal);
+    // Claude Desktop's idle copy is closed instead, and Desktop loads the conversation again from disk. A copy
+    // Desktop loads again at once (it is on screen) is closed after the run, when the turn is on disk.
     const prior = priorSessionId(ctx);
     let waited = false;
-    while (prior && live().some((s) => s.sessionId === prior && s.kind === 'interactive' && s.status === 'busy')) {
-      if (!waited) { waited = true; await log("You are working in this agent's session in Claude Desktop; the run starts when that turn ends."); }
+    let closed = false;
+    for (;;) {
+      const copies = prior ? await copiesOf(prior) : [];
+      if (copies.length === 0 || (closed && copies.every(isIdleDesktopCopy))) break;
+      if (!closed && copies.every(isIdleDesktopCopy)) {
+        closed = true;
+        if ((await close(copies)).length > 0) { await log(CLOSED_NOTE); continue; }
+      }
+      if (!waited) { waited = true; await log('This conversation is in use (a turn in progress, or open in a terminal); the run starts when it is free.'); }
       if (ctx.signal?.aborted) return { exitCode: null, signal: 'SIGTERM', timedOut: false, errorMessage: 'Cancelled in Paperclip' };
       await sleep(pollMs);
     }
@@ -209,8 +221,11 @@ export function createExecute({
       await fsp.rm(runDir, { recursive: true, force: true }).catch(() => {});
     }
 
-    // A new conversation goes to Claude Desktop's sidebar, under the folder it ran in.
+    // A copy Claude Desktop loaded during the run lacks the run's turn: close it too, now that the turn is on disk.
     const session = result?.sessionId ?? result?.sessionParams?.sessionId;
+    if (session && session === prior && (await close(await copiesOf(session))).length > 0) await log(CLOSED_NOTE);
+
+    // A new conversation goes to Claude Desktop's sidebar, under the folder it ran in.
     const cwd = result?.sessionParams?.cwd ?? turn?.cwd;
     if (session && session !== prior && cwd) {
       const opened = await open(session, cwd);
