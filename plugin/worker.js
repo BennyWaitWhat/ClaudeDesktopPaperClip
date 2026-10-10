@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { definePlugin, runWorker } from '@paperclipai/plugin-sdk';
 import { openInDesktop } from '../desktop.mjs';
+import { applyUiFixes } from '../paperclip-ui-fixes.mjs';
 import { desktopFolder, ensureFolder, ensureOrgFolder, orgFolderName } from './folders.mjs';
 
 export const FOLDER_KEY = 'org';
@@ -27,6 +28,10 @@ let host = null; // setup's ctx, for API requests
 const plugin = definePlugin({
   async setup(ctx) {
     host = ctx;
+
+    // Fixes to Paperclip's own page (paperclip-ui-fixes.mjs), again after each Paperclip update ships a new page.
+    const fixes = applyUiFixes();
+    ctx.logger.info('Paperclip page fixes', fixes);
 
     // Part of making an org: its folder exists before its first agent runs.
     ctx.events.on('company.created', async (event) => {

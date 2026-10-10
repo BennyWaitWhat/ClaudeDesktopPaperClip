@@ -86,6 +86,21 @@ Where a run works, first match wins:
 Claude Code then loads that folder's `CLAUDE.md`, `.claude/` agents, skills and settings, and its memory,
 the same as a Claude Code session you open in that folder.
 
+## Fixes to Paperclip's own page
+
+The plugin fixes Paperclip's installed page each time it starts (`paperclip-ui-fixes.mjs`), so a Paperclip
+update that ships a new page gets the fix again. Paperclip's originals are kept next to the files it changes
+(`*.claude-desktop-paperclip.orig`); `node paperclip-ui-fixes.mjs --restore` puts them back, `--check` reports.
+
+- **The setup wizard can no longer be taken over.** Paperclip's Dashboard opens the setup wizard by itself for
+  an org with no agents, and that used to replace whatever the wizard was doing: with the wizard open on a new
+  org and an agentless org on the Dashboard behind it, the new org's first agent was made in the other org.
+  The Dashboard's automatic offer now waits while the wizard is open.
+- Paperclip lets browsers keep its page for a year, so `index.html` (always fetched fresh) also gets a small
+  script that downloads the fixed page once per browser and reloads once.
+
+A page it does not recognize is left exactly as it was.
+
 ## Switch it on
 
 1. `npm install` in `plugin/` (the plugin's one dependency, Paperclip's plugin SDK).
