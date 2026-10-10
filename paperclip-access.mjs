@@ -84,6 +84,12 @@ export async function agentKey({ api, instance, agentId }) {
   return { token: made.json.token, agent: me.json ?? { id: agentId } };
 }
 
+/**
+ * True inside a run Paperclip started itself (its own Claude type, with the override paused), which brings its own
+ * access. The org folder's conversations carry CLAUDE_DESKTOP_SESSION_ID from their SessionStart hook.
+ */
+export const insidePaperclipRun = (env = process.env) => Boolean(env.PAPERCLIP_RUN_ID || env.PAPERCLIP_API_KEY) && !env.CLAUDE_DESKTOP_SESSION_ID;
+
 /** A hook's command-line arguments: --api, --instance, --chief. */
 export function hookArgs(argv = process.argv) {
   const arg = (name) => { const i = argv.indexOf(`--${name}`); return i > 0 ? argv[i + 1] : undefined; };

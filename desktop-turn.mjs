@@ -11,28 +11,59 @@
 // 20 others). So a turn whose message names a card (a hand-off: "please take LEM-8") opens its run on that card,
 // and an agent that takes up a card partway through a turn moves the rest of the turn to that card's own run
 // (hooks/paperclip-card.mjs). A turn that names no card is a plain conversation: a run with no card.
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { turnResult } from './open-copy.mjs';
 import { paperclipCall } from './paperclip-access.mjs';
+
+/** What a turn did, for its run: its last reply, its token use (per API message), its model. */
+export function turnResult(entries) {
+  const usageById = new Map();
+  let model = null;
+  let summary = '';
+  for (const e of entries) {
+    if (e.type !== 'assistant' || !e.message) continue;
+    const m = e.message;
+    if (m.model) model = m.model;
+    const text = (Array.isArray(m.content) ? m.content : []).filter((c) => c?.type === 'text').map((c) => c.text).join('\n').trim();
+    if (text) summary = text;
+    if (m.usage) usageById.set(m.id ?? e.uuid, m.usage); // each content block repeats its message's usage; the last is final
+  }
+  const usage = { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 };
+  for (const u of usageById.values()) {
+    usage.inputTokens += u.input_tokens ?? 0;
+    usage.outputTokens += u.output_tokens ?? 0;
+    usage.cachedInputTokens += u.cache_read_input_tokens ?? 0;
+  }
+  return { summary, usage, model };
+}
 
 export const DESKTOP_TURN_REASON = 'desktop_turn';
 export const turnsDir = (instanceRoot) => path.join(instanceRoot, 'claude-desktop', 'turns');
 export const turnFile = (dir, runId) => path.join(dir, `${runId}.json`);
 export const doneFile = (dir, runId) => path.join(dir, `${runId}.done`);
 export const sessionFile = (dir, sessionId) => path.join(dir, `session-${sessionId}.json`);
+// The conversation's current run id as plain text: its shell reads it before every command ($PAPERCLIP_RUN_ID).
+export const runIdFile = (dir, sessionId) => path.join(dir, `session-${sessionId}.run`);
+// The agent file the conversation last saw (a hash), so an edit made in Paperclip is handed over once.
+export const seenFile = (dir, sessionId) => path.join(dir, `session-${sessionId}.agent`);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const readJson = (file) => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; } };
 const list = (dir) => { try { return fs.readdirSync(dir); } catch { return []; } };
 const writePrivate = (file, data) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(data), { mode: 0o600 }); };
 const FINISHED = new Set(['succeeded', 'failed', 'cancelled', 'timed_out', 'interrupted']);
-const CARD = /\b[A-Z][A-Z0-9]{1,9}-\d{1,7}\b/g;
+const ANY_CARD = /\b[A-Z][A-Z0-9]{1,9}-\d{1,7}\b/g;
+const escapeRe = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-/** The first card `text` names that Paperclip knows (LEM-8, CAR-12...): { id, identifier }, or null. */
-export async function namedCard({ api, token, text }) {
+/**
+ * The first card `text` names that Paperclip knows: { id, identifier }, or null. With `prefix` (the org's own, e.g.
+ * LEM) only that org's cards count, so "UTF-8" or another org's card never ties a run to the wrong card.
+ */
+export async function namedCard({ api, token, text, prefix = null }) {
   const seen = new Set();
-  for (const [identifier] of String(text ?? '').matchAll(CARD)) {
+  const pattern = prefix ? new RegExp(`\\b${escapeRe(prefix)}-\\d{1,7}\\b`, 'g') : ANY_CARD;
+  for (const [identifier] of String(text ?? '').matchAll(pattern)) {
     if (seen.has(identifier) || seen.size >= 3) continue;
     seen.add(identifier);
     const found = await paperclipCall(api, `/api/issues/${identifier}`, { token });
@@ -43,14 +74,37 @@ export async function namedCard({ api, token, text }) {
 
 /**
  * Remove files no run will read: a run's own files go when it ends, but a run Paperclip cancels before the adapter
- * starts never reads its turn file. Done markers go after an hour, turn files after a day.
+ * starts never reads its turn file. Done markers go after an hour, turn files and run ids after a day. What a
+ * conversation last saw of its agent file stays: conversations last for weeks.
  */
 export function sweepStale(dir, now = Date.now()) {
   for (const f of list(dir)) {
     const file = path.join(dir, f);
     const age = (() => { try { return now - fs.statSync(file).mtimeMs; } catch { return 0; } })();
-    if ((f.endsWith('.done') && age > 60 * 60_000) || (f.endsWith('.json') && age > 24 * 60 * 60_000)) fs.rmSync(file, { force: true });
+    if ((f.endsWith('.done') && age > 60 * 60_000) || (/\.(json|run)$/.test(f) && age > 24 * 60 * 60_000)) fs.rmSync(file, { force: true });
   }
+}
+
+const bodyOf = (definition) => String(definition ?? '').replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '').trim();
+const hashOf = (text) => crypto.createHash('sha256').update(text).digest('hex');
+
+/** Note that the conversation has the agent's current instructions (its system prompt, or handed over at its start). */
+export function markSeen(dir, sessionId, definition) {
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(seenFile(dir, sessionId), hashOf(bodyOf(definition)), { mode: 0o600 });
+}
+
+/**
+ * The agent's instructions when they changed (in Paperclip) since the conversation last had them, else null. Either
+ * way they count as seen from here on, so a change is handed over once. A conversation with no record starts one.
+ */
+export function changedInstructions(dir, sessionId, definition) {
+  const body = bodyOf(definition);
+  let before = null;
+  try { before = fs.readFileSync(seenFile(dir, sessionId), 'utf8').trim(); } catch { /* no record yet */ }
+  if (before === hashOf(body)) return null;
+  markSeen(dir, sessionId, definition);
+  return before && body ? body : null;
 }
 
 /** End the conversation's current run (its turn, or the part of it so far). */
@@ -85,9 +139,13 @@ export async function openTurnRun({ api, token, agentId, sessionId, transcript, 
     },
   });
   const runId = woke.status === 202 && typeof woke.json?.id === 'string' && woke.json?.agentId === agentId ? woke.json.id : null;
-  if (!runId || runId === previous) return null;
+  if (!runId || runId === previous) {
+    fs.rmSync(runIdFile(dir, sessionId), { force: true }); // the previous run is over: no run id beats a stale one
+    return null;
+  }
   writePrivate(turnFile(dir, runId), { runId, agentId, sessionId, transcript, offset, cwd, issueId, startedAt: new Date().toISOString() });
   writePrivate(sessionFile(dir, sessionId), { runId });
+  fs.writeFileSync(runIdFile(dir, sessionId), runId, { mode: 0o600 });
   return runId;
 }
 

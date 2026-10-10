@@ -32,4 +32,4 @@ if (!runId) {
   console.error(`Paperclip did not start a run on ${found.identifier} (it may already have a run going, or Paperclip is not answering).`);
   process.exit(1);
 }
-console.log(`Paperclip run ${runId} now records the rest of this turn, on ${found.identifier}. Send "X-Paperclip-Run-Id: ${runId}" from here on.`);
+console.log(`Paperclip run ${runId} now records the rest of this turn, on ${found.identifier}, and $PAPERCLIP_RUN_ID holds it from your next command on.`);

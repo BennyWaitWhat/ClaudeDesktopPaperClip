@@ -6,16 +6,19 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { doneFile, sessionFile, turnFile, turnsDir } from '../desktop-turn.mjs';
+import { doneFile, runIdFile, seenFile, sessionFile, turnFile, turnsDir } from '../desktop-turn.mjs';
 import { ensureOrgSettings } from '../org-folder.mjs';
+import { addToInbox, inboxFile } from '../paperclip-wakes.mjs';
 
 const HOOK = fileURLToPath(new URL('../hooks/desktop-turn.mjs', import.meta.url));
+const SESSION_HOOK = fileURLToPath(new URL('../hooks/desktop-session.mjs', import.meta.url));
 const CARD_TOOL = fileURLToPath(new URL('../hooks/paperclip-card.mjs', import.meta.url));
+const GIT_BASH = ['C:/Program Files/Git/bin/bash.exe', 'C:/Program Files (x86)/Git/bin/bash.exe'].find((f) => fs.existsSync(f));
 const tmp = (name) => fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`));
 const line = (e) => `${JSON.stringify(e)}\n`;
 
-/** A stand-in Paperclip: who am I, a key, cards by short name, run status, wakeups. */
-async function fakePaperclip() {
+/** A stand-in Paperclip: who am I, a key, the org, cards by short name, run status, wakeups (runs end at once with `quick`). */
+async function fakePaperclip({ quick = false } = {}) {
   const calls = [];
   const runs = new Map();
   const server = http.createServer(async (req, res) => {
@@ -26,12 +29,13 @@ async function fakePaperclip() {
     const last = req.url.split('/').pop();
     if (req.url === '/api/agents/me') return send(req.headers.authorization === 'Bearer pcp_key' ? 200 : 401, { id: 'agent-1', name: 'Cashier', companyId: 'org-1' });
     if (req.url === '/api/agents/agent-1/keys') return send(201, { id: 'key-1', token: 'pcp_key', createdAt: 'now' });
+    if (req.url === '/api/companies/org-1') return send(200, { id: 'org-1', name: 'Lemonade Stand', issuePrefix: 'LEM' });
     if (req.url === '/api/issues/LEM-8') return send(200, { id: 'card-8', identifier: 'LEM-8' });
     if (req.url.startsWith('/api/issues/')) return send(404, { error: 'Issue not found' });
     if (req.url.startsWith('/api/heartbeat-runs/')) return send(200, { id: last, status: runs.get(last) ?? 'succeeded' });
     if (req.url === '/api/agents/agent-1/wakeup') {
       const id = `run-${calls.length}`;
-      runs.set(id, 'running');
+      runs.set(id, quick ? 'succeeded' : 'running');
       return send(202, { id, agentId: 'agent-1', status: 'queued' });
     }
     send(404, {});
@@ -42,21 +46,23 @@ async function fakePaperclip() {
 
 function run(script, args, { stdin, env = {} } = {}) {
   return new Promise((resolve) => {
-    const child = execFile(process.execPath, [script, ...args], { env: { ...process.env, PAPERCLIP_RUN_ID: '', ...env } }, (e, stdout, stderr) => resolve({ code: e?.code ?? 0, stdout, stderr }));
+    const child = execFile(process.execPath, [script, ...args], { env: { ...process.env, PAPERCLIP_RUN_ID: '', PAPERCLIP_API_KEY: '', CLAUDE_DESKTOP_SESSION_ID: '', ...env } }, (e, stdout, stderr) => resolve({ code: e?.code ?? 0, stdout, stderr }));
     child.stdin.end(stdin === undefined ? '' : JSON.stringify(stdin));
   });
 }
 
+const CASHIER = (body) => `---\nname: cashier\nmodel: haiku\npaperclip-agent-id: agent-1\n---\n${body}\n`;
+
 function orgFolder() {
   const org = tmp('org');
   fs.mkdirSync(path.join(org, '.claude', 'agents'), { recursive: true });
-  fs.writeFileSync(path.join(org, '.claude', 'agents', 'cashier.md'), '---\nname: cashier\npaperclip-agent-id: agent-1\n---\nYou run the till.\n');
+  fs.writeFileSync(path.join(org, '.claude', 'agents', 'cashier.md'), CASHIER('You run the till.'));
   const transcript = path.join(org, 'conv.jsonl');
   fs.writeFileSync(transcript, line({ type: 'agent-setting', agentSetting: 'cashier' }));
   return { org, transcript };
 }
 
-test("the org folder's hook opens a run for the agent's turn, on the card its message names, and closes it at Stop", async () => {
+test("the org folder's hook opens a run for the agent's turn, on the org card its message names, and closes it at Stop", async () => {
   const paperclip = await fakePaperclip();
   try {
     const instance = tmp('instance');
@@ -64,7 +70,7 @@ test("the org folder's hook opens a run for the agent's turn, on the card its me
     const hook = (input, env) => run(HOOK, ['--api', paperclip.api, '--instance', instance], { stdin: input, env });
     const input = {
       hook_event_name: 'UserPromptSubmit', session_id: 'conv-1', transcript_path: transcript, cwd: org,
-      prompt: '<cross-session-message from-name="Chief of Staff">Please take LEM-8</cross-session-message>',
+      prompt: '<cross-session-message from-name="Chief of Staff">Please take LEM-8 (the UTF-8 sign)</cross-session-message>',
     };
 
     const out = JSON.parse((await hook(input)).stdout);
@@ -72,10 +78,11 @@ test("the org folder's hook opens a run for the agent's turn, on the card its me
     assert.equal(wake.auth, 'Bearer pcp_key', 'the agent wakes itself with its own key');
     assert.equal(wake.body.reason, 'desktop_turn');
     assert.deepEqual(wake.body.payload, { issueId: 'card-8' }, 'the run is tied to the card the message names');
+    assert.equal(paperclip.calls.some((c) => c.url === '/api/issues/UTF-8'), false, 'only the org\'s own cards are looked up');
     const runId = `run-${paperclip.calls.indexOf(wake) + 1}`;
-    assert.match(out.hookSpecificOutput.additionalContext, new RegExp(`X-Paperclip-Run-Id: ${runId}`));
-    assert.match(out.hookSpecificOutput.additionalContext, /on LEM-8/);
+    assert.match(out.hookSpecificOutput.additionalContext, new RegExp(`Paperclip run ${runId} records this turn, on LEM-8`));
     const dir = turnsDir(instance);
+    assert.equal(fs.readFileSync(runIdFile(dir, 'conv-1'), 'utf8'), runId, 'the shell\'s $PAPERCLIP_RUN_ID reads this');
     const turn = JSON.parse(fs.readFileSync(turnFile(dir, runId), 'utf8'));
     assert.equal(turn.offset, fs.statSync(transcript).size);
     assert.equal(turn.issueId, 'card-8');
@@ -101,7 +108,90 @@ test("the org folder's hook opens a run for the agent's turn, on the card its me
   }
 });
 
-test('paperclip-card moves the rest of a turn to the card\'s own run', async () => {
+test('a turn opens with what happened in Paperclip since the last one, and with edited instructions once', async () => {
+  const paperclip = await fakePaperclip({ quick: true });
+  try {
+    const instance = tmp('instance');
+    const { org, transcript } = orgFolder();
+    const hook = (prompt) => run(HOOK, ['--api', paperclip.api, '--instance', instance], {
+      stdin: { hook_event_name: 'UserPromptSubmit', session_id: 'conv-2', transcript_path: transcript, cwd: org, prompt },
+    }).then((r) => JSON.parse(r.stdout).hookSpecificOutput.additionalContext);
+
+    const first = await hook('Morning!');
+    assert.doesNotMatch(first, /instructions were edited/, 'the first turn starts the record');
+    assert.ok(fs.existsSync(seenFile(turnsDir(instance), 'conv-2')));
+
+    addToInbox(instance, 'agent-1', {
+      reason: 'issue_assigned', card: { id: 'card-9', identifier: 'LEM-9', title: 'Restock lemons' }, parked: true,
+      comments: [{ author: 'Benny', body: 'Before noon,\nplease.' }],
+    });
+    fs.writeFileSync(path.join(org, '.claude', 'agents', 'cashier.md'), CASHIER('You run the till. Cash only.'));
+    const second = await hook('Hi again');
+    assert.match(second, /^Since your last turn, in Paperclip:\n- LEM-9 "Restock lemons" was given to you \(moved to backlog until you take it up\)\.\n {2}Benny: Before noon, please\./);
+    assert.match(second, /instructions were edited in Paperclip[\s\S]*You run the till\. Cash only\./);
+    assert.ok(!fs.existsSync(inboxFile(instance, 'agent-1')), 'the inbox is emptied');
+
+    const third = await hook('And again');
+    assert.doesNotMatch(third, /Since your last turn|instructions were edited/, 'each is handed over once');
+
+    fs.writeFileSync(path.join(org, '.claude', 'agents', 'cashier.md'), CASHIER('You run the till. Cash only.').replace('model: haiku', 'model: opus'));
+    assert.doesNotMatch(await hook('Model change'), /instructions were edited/, 'a model change is not an instruction change');
+  } finally {
+    paperclip.close();
+  }
+});
+
+test('when Paperclip is not answering, the turn goes on and is told so', async () => {
+  const instance = tmp('instance');
+  const { org, transcript } = orgFolder();
+  addToInbox(instance, 'agent-1', { reason: 'issue_commented', card: { id: 'card-9', identifier: 'LEM-9' }, comments: [] });
+  const out = await run(HOOK, ['--api', 'http://127.0.0.1:9', '--instance', instance], {
+    stdin: { hook_event_name: 'UserPromptSubmit', session_id: 'conv-3', transcript_path: transcript, cwd: org, prompt: 'Hello' },
+  });
+  const context = JSON.parse(out.stdout).hookSpecificOutput.additionalContext;
+  assert.match(context, /LEM-9 has a new comment/);
+  assert.match(context, /Paperclip opened no run for this turn \(Paperclip is not answering\)/);
+});
+
+test("the session hook gives the conversation its access, with the current turn's run id read before every command", async () => {
+  const paperclip = await fakePaperclip();
+  try {
+    const instance = tmp('instance');
+    const { org, transcript } = orgFolder();
+    const envFile = path.join(tmp('env'), 'env.sh');
+    const start = (source) => run(SESSION_HOOK, ['--api', paperclip.api, '--instance', instance], {
+      stdin: { hook_event_name: 'SessionStart', source, session_id: 'conv-4', transcript_path: transcript, cwd: org },
+      env: { CLAUDE_ENV_FILE: envFile },
+    });
+
+    const out = JSON.parse((await start('startup')).stdout);
+    assert.match(out.hookSpecificOutput.additionalContext, /runs as Cashier[\s\S]*\$PAPERCLIP_RUN_ID/);
+    const env = fs.readFileSync(envFile, 'utf8');
+    assert.match(env, /^export PAPERCLIP_API_KEY='pcp_key'$/m);
+    assert.match(env, /^export CLAUDE_DESKTOP_SESSION_ID='conv-4'$/m);
+    assert.match(env, /^export PAPERCLIP_RUN_ID="\$\(cat '.*session-conv-4\.run' 2>\/dev\/null\)"$/m);
+    const dir = turnsDir(instance);
+    assert.ok(fs.existsSync(seenFile(dir, 'conv-4')), 'an agent conversation has its agent file as it is now');
+
+    fs.rmSync(seenFile(dir, 'conv-4'));
+    await start('compact');
+    assert.ok(!fs.existsSync(seenFile(dir, 'conv-4')), 'a compacted conversation keeps the agent file it started with');
+
+    if (GIT_BASH) {
+      const echo = () => new Promise((resolve) => execFile(GIT_BASH, ['-c', `source '${envFile.replace(/\\/g, '/')}'; printf %s "$PAPERCLIP_RUN_ID"`], (_e, stdout) => resolve(stdout)));
+      assert.equal(await echo(), '', 'no turn yet');
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(runIdFile(dir, 'conv-4'), 'run-77');
+      assert.equal(await echo(), 'run-77');
+      fs.writeFileSync(runIdFile(dir, 'conv-4'), 'run-78');
+      assert.equal(await echo(), 'run-78', 'the next turn\'s run, without restarting anything');
+    }
+  } finally {
+    paperclip.close();
+  }
+});
+
+test("paperclip-card moves the rest of a turn to the card's own run", async () => {
   const paperclip = await fakePaperclip();
   try {
     const instance = tmp('instance');
@@ -122,6 +212,7 @@ test('paperclip-card moves the rest of a turn to the card\'s own run', async () 
     assert.deepEqual(wake.body.payload, { issueId: 'card-8' });
     const runId = moved.stdout.match(/run (run-\d+)/)[1];
     assert.equal(JSON.parse(fs.readFileSync(sessionFile(dir, 'conv-1'), 'utf8')).runId, runId);
+    assert.equal(fs.readFileSync(runIdFile(dir, 'conv-1'), 'utf8'), runId);
     assert.equal(JSON.parse(fs.readFileSync(turnFile(dir, runId), 'utf8')).issueId, 'card-8');
 
     const unknown = await run(CARD_TOOL, ['LEM-404'], { env });

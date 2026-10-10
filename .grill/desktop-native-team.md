@@ -61,6 +61,13 @@ lives and works, and where Benny talks to them.
   wizard needs it.
 - Paperclip's Dashboard could hijack an open new-org wizard for an agentless org; fixed in Paperclip's page.
 
+## Design notes (implementation choices, not Benny's answers)
+
+- Q21 in practice: a Paperclip wake for a Claude agent ends at once without starting work; a card it was about
+  that is todo or in_progress goes to backlog with a one-line note from the agent (so Paperclip's sweep leaves it
+  alone), and what changed opens the agent's next Desktop turn. Cards Benny assigns in Paperclip visibly flip to
+  backlog.
+
 ## Open questions (build details, not Benny's to decide)
 
 - Exactly what the adapter does with each kind of Paperclip wake under Q21's rule, and how the next turn is told.
@@ -102,7 +109,7 @@ lives and works, and where Benny talks to them.
 | Q20 result | He answered the Chief of Staff in Paperclip's onboarding card: why? | Only because Desktop showed nothing: making the org must put its folder and the Chief of Staff's conversation in Desktop's sidebar at once, ready to talk to. Telling it in Paperclip was a deliberate test | "i only did that because i didnt see the claude folder and the agent open on my claude desktop. so just for extra info, i told it do it from paperclip to test. if i didnt you wouldnt have known. i expected you to be forward thinking." / "aka DIDNT have a place to tell it to make 3 agents except thru paperclip because when it was created, i didnt see the session started from claudedesktop end." |
 | Q20 next | Keep Lemonade Stand for the test? | No: a fresh test org once the Desktop version is ready. Lemonade Stand was archived 2026-10-10 (reversible) | "ok, maybe should start with fresh test when you're ready and done." |
 | Q20 fix | The wizard takeover (an agentless org's Dashboard offer hijacking the open wizard) | Fixed in Paperclip's page instead of working around it, re-applied by the plugin on every start (2f66ef4); work is pushed as it lands | "stop being lazy and fix all that then. i dont even see you pushing to https://github.com/BennyWaitWhat/ClaudeDesktopPaperClip" |
-| Q21 | He does something for an agent inside Paperclip (assigns it a card, comments on its card, answers a question it asked there): what happens in Desktop? | It waits for the agent's next turn in Desktop, which sees it first; nothing starts on its own. Paperclip's own wakes for a Claude agent end at once: a card waiting for the agent goes to backlog with a note, and what changed is handed to the agent's next turn | picked "Waits for next turn (Recommended)" |
+| Q21 | He does something for an agent inside Paperclip (assigns it a card, comments on its card, answers a question it asked there): what happens in Desktop? | It waits for the agent's next turn in Desktop, which sees it first; nothing starts on its own | picked "Waits for next turn (Recommended)" |
 | Q22 | Once the fresh test org works, in what order do the real orgs move over? | Career Catchers first, right after the fresh test passes (its job-search work has been on hold since 2026-10-09); GA Pardon and CloudFlare follow on Benny's go | picked "Career Catchers first (Recommended)" |
 | Q23 | Career Catchers' agents need the Career Ops files in their org folder: a separate copy or a link to the one folder? | A separate copy inside the org folder, kept in step through GitHub (as in Q8/Q9); the link was offered as the recommendation and not taken | picked "Separate copy, synced" |
 | Q6 | How does he start talking to a specific agent? | Click its one conversation in the sidebar, under the org's folder; a brand-new chat in the org folder is the Chief of Staff; setup gives each agent one short hello reply, once, so it keeps its own identity | picked "Click it in the sidebar (Recommended)" |

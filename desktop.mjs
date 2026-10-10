@@ -1,6 +1,6 @@
-// Claude Desktop helpers shared by the adapter (index.mjs) and the plugin (plugin/worker.js): finding the Claude
-// Code that Claude Desktop installed, reading Claude Code's live-session registry, handing a conversation to
-// Claude Desktop's sidebar, and closing Claude Desktop's loaded copy of one.
+// Claude Desktop helpers shared by the adapter (index.mjs), the org-folder hooks and the plugin (plugin/worker.js):
+// finding the Claude Code that Claude Desktop installed and the running Paperclip's packages, reading Claude Code's
+// live-session registry, and handing a conversation to Claude Desktop's sidebar at a pause in your typing.
 import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -21,6 +21,25 @@ function desktopCodeRoots(env) {
   const packages = path.join(env.LOCALAPPDATA ?? path.join(os.homedir(), 'AppData', 'Local'), 'Packages');
   for (const pkg of list(packages)) if (/^Claude_/i.test(pkg)) roots.push(path.join(packages, pkg, 'LocalCache', 'Roaming', 'Claude', 'claude-code'));
   return roots;
+}
+
+/** Folder of a @paperclipai package next to the running Paperclip (realpath, so the server's own copy). */
+export function findPaperclipPackage(name, starts = [
+  process.argv[1],
+  path.join(path.dirname(process.execPath), 'node_modules', 'paperclipai', 'dist', 'index.js'),
+]) {
+  for (const start of starts) {
+    if (!start) continue;
+    let dir = path.dirname(path.resolve(start));
+    for (;;) {
+      const pkg = path.join(dir, 'node_modules', '@paperclipai', name);
+      if (fs.existsSync(path.join(pkg, 'package.json'))) return fs.realpathSync(pkg);
+      const up = path.dirname(dir);
+      if (up === dir) break;
+      dir = up;
+    }
+  }
+  return null;
 }
 
 /** The newest Claude Code that Claude Desktop installed (Windows), or null. */
@@ -63,7 +82,6 @@ export function liveSessions(dir = path.join(os.homedir(), '.claude', 'sessions'
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const isSessionId = (value) => UUID.test(String(value ?? ''));
 
-const isAlive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** Run a short PowerShell command without holding up the process that asks (Paperclip's server). */
@@ -72,13 +90,6 @@ function powershell(command, timeout = 15_000) {
     execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], { encoding: 'utf8', windowsHide: true, timeout, env: windowsUserEnv() },
       (_err, stdout) => resolve(String(stdout ?? '').trim()));
   });
-}
-
-/** When Windows started a process, in the form Claude Code records it (procStart, a FILETIME), or null. */
-export async function processStartTime(pid) {
-  if (process.platform !== 'win32' || !Number.isInteger(pid)) return null;
-  const value = await powershell(`(Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToFileTimeUtc()`);
-  return /^\d+$/.test(value) ? value : null;
 }
 
 const IDLE_PROBE = `Add-Type -TypeDefinition @'
@@ -109,38 +120,6 @@ export async function handOffWhenQuiet(sessionId, cwd, { open = openInDesktop, i
     await sleep(Math.max(pollMs, quietMs - ms));
   }
   return open(sessionId, cwd);
-}
-
-/**
- * The processes that have a conversation loaded right now: Claude Desktop's copy, a terminal session, a run. An
- * entry whose process id now belongs to another process (it started at another time) is not one of them.
- */
-export async function conversationCopies(sessionId, { sessionsDir, startTime = processStartTime } = {}) {
-  const copies = [];
-  for (const s of liveSessions(sessionsDir)) {
-    if (s.sessionId !== sessionId) continue;
-    if (s.procStart !== undefined && String(await startTime(s.pid)) !== String(s.procStart)) continue;
-    copies.push(s);
-  }
-  return copies;
-}
-
-/** Claude Desktop's own copy of a conversation, loaded and waiting for you: no turn in progress, no question open. */
-export const isIdleDesktopCopy = (s) => s.entrypoint === 'claude-desktop' && s.kind === 'interactive' && s.status === 'idle';
-
-/**
- * Close Claude Desktop's loaded copies of a conversation (isIdleDesktopCopy), as Desktop does itself when it
- * unloads an idle one: the process ends, nothing in the conversation is lost, and Desktop loads it from disk
- * again the next time it is shown. Returns the process ids that ended.
- */
-export async function closeDesktopCopies(copies, { kill = (pid) => process.kill(pid), alive = isAlive, waitMs = 5000 } = {}) {
-  const closing = [];
-  for (const s of copies) {
-    if (!isIdleDesktopCopy(s)) continue;
-    try { kill(s.pid); closing.push(s.pid); } catch { /* already gone */ }
-  }
-  for (const end = Date.now() + waitMs; closing.some(alive) && Date.now() < end;) await sleep(100);
-  return closing.filter((pid) => !alive(pid));
 }
 
 /**
