@@ -117,32 +117,43 @@ export function endTurnRun(dir, sessionId) {
   return runId ?? null;
 }
 
+async function waitFinished(api, token, runId, waitMs) {
+  for (const end = Date.now() + waitMs; Date.now() < end; await sleep(150)) {
+    const run = await paperclipCall(api, `/api/heartbeat-runs/${runId}`, { token });
+    if (run.status !== 200 || FINISHED.has(run.json?.status)) return true;
+  }
+  return false;
+}
+
 /**
  * Open a Paperclip run for this conversation's turn, or for the rest of it from `offset` (tied to `issueId` when
- * given), and point the run at the transcript. The conversation's previous run is ended and waited for first:
- * Paperclip folds a wake into the agent's run that is still going. Returns the run id, or null when Paperclip did not
- * start a run (not answering, or the agent can't run now).
+ * given), and point the run at the transcript. Paperclip folds a wake into the agent's run on the same card that is
+ * still going, so the conversation's previous run is ended and waited for first, and a wake folded into a run that
+ * was already going anyway (one of Paperclip's own, which waits for Desktop and ends at once) is asked again once
+ * that run is over. A wake folded into a run still queued is fine: it starts as this turn. Returns the run id, or
+ * null when Paperclip did not start a run (not answering, or the agent can't run now).
  */
 export async function openTurnRun({ api, token, agentId, sessionId, transcript, cwd, dir, offset, issueId = null, waitMs = 5000 }) {
   sweepStale(dir);
   const previous = endTurnRun(dir, sessionId);
-  if (previous) {
-    for (const end = Date.now() + waitMs; Date.now() < end; await sleep(150)) {
-      const run = await paperclipCall(api, `/api/heartbeat-runs/${previous}`, { token });
-      if (run.status !== 200 || FINISHED.has(run.json?.status)) break;
-    }
+  if (previous) await waitFinished(api, token, previous, waitMs);
+  let runId = null;
+  for (let attempt = 0; attempt < 3 && !runId; attempt++) {
+    const woke = await paperclipCall(api, `/api/agents/${agentId}/wakeup`, {
+      method: 'POST',
+      token,
+      body: {
+        source: 'on_demand', triggerDetail: 'manual', reason: DESKTOP_TURN_REASON,
+        ...(issueId ? { payload: { issueId } } : {}),
+        idempotencyKey: `desktop-turn:${sessionId}:${offset}${issueId ? `:${issueId}` : ''}${attempt ? `:${attempt}` : ''}`,
+      },
+    });
+    const run = woke.status === 202 && typeof woke.json?.id === 'string' && woke.json?.agentId === agentId ? woke.json : null;
+    if (!run) break;
+    if (run.status === 'queued' && run.id !== previous) runId = run.id;
+    else if (!(await waitFinished(api, token, run.id, waitMs))) break;
   }
-  const woke = await paperclipCall(api, `/api/agents/${agentId}/wakeup`, {
-    method: 'POST',
-    token,
-    body: {
-      source: 'on_demand', triggerDetail: 'manual', reason: DESKTOP_TURN_REASON,
-      ...(issueId ? { payload: { issueId } } : {}),
-      idempotencyKey: `desktop-turn:${sessionId}:${offset}${issueId ? `:${issueId}` : ''}`,
-    },
-  });
-  const runId = woke.status === 202 && typeof woke.json?.id === 'string' && woke.json?.agentId === agentId ? woke.json.id : null;
-  if (!runId || runId === previous) {
+  if (!runId) {
     fs.rmSync(runIdFile(dir, sessionId), { force: true }); // the previous run is over: no run id beats a stale one
     return null;
   }

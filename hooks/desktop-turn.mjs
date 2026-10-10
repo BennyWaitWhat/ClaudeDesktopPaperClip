@@ -57,7 +57,7 @@ const run = runId
   ? [
     `Paperclip run ${runId} records this turn${card ? `, on ${card.identifier}` : ' (no card: a plain conversation)'}, and $PAPERCLIP_RUN_ID holds it. Send "X-Paperclip-Run-Id: $PAPERCLIP_RUN_ID" with the Paperclip API calls you make in this turn.`,
     card
-      ? `It can comment on and update ${card.identifier} freely, and up to 20 other cards. To move the rest of this turn to another card, run ${tool}.`
+      ? `It already runs on ${card.identifier}: comment on it and update it freely (and up to 20 other cards). To move to a different card, first leave ${card.identifier} done, in_review, blocked, or in backlog, then run ${tool}.`
       : `A run with no card can create cards and check one out, but can't comment on or update any. To work on a card in this turn, first run ${tool}; $PAPERCLIP_RUN_ID then holds that card's run.`,
   ].join(' ')
   : `Paperclip opened no run for this turn (${key ? 'it refused the wake; is the agent paused?' : 'Paperclip is not answering'}), so the turn is not recorded there and Paperclip calls that need a run will fail.`;

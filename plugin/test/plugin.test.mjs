@@ -7,8 +7,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { createTestHarness } from '@paperclipai/plugin-sdk/testing';
 import { readOrg, updateOrg } from '../../desktop-orgs.mjs';
+import { paperclipInstance } from '../../org-sync.mjs';
 import manifest from '../manifest.js';
-import plugin, { FOLDER_KEY, options, paperclipInstance } from '../worker.js';
+import plugin, { FOLDER_KEY, options } from '../worker.js';
 import { desktopFolder, ensureFolder, ensureOrgFolder, orgFolderName } from '../folders.mjs';
 
 const tmp = (name) => fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`));
@@ -53,7 +54,7 @@ async function harness() {
     noteCard: async ({ issueId }) => { noted.push(issueId); return null; },
   });
   const h = createTestHarness({ manifest });
-  h.seed({ companies: [{ id: 'c1', name: 'Test Org' }, { id: 'c2', name: 'Older Org' }] });
+  h.seed({ companies: [{ id: 'c1', name: 'Test Org' }, { id: 'c2', name: 'Older Org' }, { id: 'c3', name: 'cdpc rehearsal abc123' }] });
   await plugin.definition.setup(h.ctx);
   return { h, synced, noted };
 }
@@ -98,6 +99,21 @@ test('an older org stays as it is until it is moved to Claude Desktop', async ()
   await settle();
   assert.deepEqual(noted, ['i2'], 'a card made for one of its agents waits in that agent\'s inbox');
   assert.equal(synced.length, 2, 'a new agent is brought in');
+  fs.rmSync(parent, { recursive: true, force: true });
+});
+
+test('a rehearsal org is left to the rehearsal: no folder, no sync, nothing handed to Claude Desktop', async () => {
+  const parent = tmp('org-parent');
+  const { h, synced } = await harness();
+  await h.performAction('set-new-org-parent', { path: parent });
+  await h.emit('company.created', {}, { companyId: 'c3', entityId: 'c3', entityType: 'company' });
+  await settle();
+  assert.equal((await h.ctx.localFolders.status('c3', FOLDER_KEY)).configured, false);
+  assert.equal(readOrg(options.instance, 'c3'), null);
+  updateOrg(options.instance, 'c3', (o) => ({ ...o, desktop: true, folder: parent, plugin: false }));
+  await h.emit('agent.created', {}, { companyId: 'c3', entityId: 'a9', entityType: 'agent' });
+  await settle();
+  assert.deepEqual(synced, []);
   fs.rmSync(parent, { recursive: true, force: true });
 });
 

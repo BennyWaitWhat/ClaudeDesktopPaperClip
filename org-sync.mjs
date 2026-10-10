@@ -11,6 +11,7 @@ import { execFile } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { readInstructions, removeOtherAgentFiles, syncSkills, writeAgentFile } from './agent-files.mjs';
 import { windowsUserEnv } from './desktop.mjs';
@@ -22,6 +23,13 @@ import { addToInbox } from './paperclip-wakes.mjs';
 
 export const TEAM_FILE = path.join('.claude', 'paperclip-team.md');
 const RETRY_MS = 5 * 60_000;
+
+/** Paperclip's instance folder, found the way Paperclip finds it (its plugin workers start without its settings). */
+export function paperclipInstance(env = process.env) {
+  const raw = env.PAPERCLIP_HOME?.trim();
+  const home = !raw ? path.join(os.homedir(), '.paperclip') : path.resolve(raw === '~' ? os.homedir() : raw.startsWith('~/') ? path.join(os.homedir(), raw.slice(2)) : raw);
+  return path.join(home, 'instances', env.PAPERCLIP_INSTANCE_ID?.trim() || 'default');
+}
 
 /** The running Paperclip's address, from its own record of where it listens. */
 export function paperclipApi(instance) {
@@ -36,11 +44,15 @@ export function paperclipApi(instance) {
 export const helloPrompt = ({ name, org }) =>
   `(Setup from Paperclip, not work.) This is your own conversation in Claude Desktop, ${name}: the board and your teammates in ${org} will talk to you here. Reply with one short line of hello, and nothing else.`;
 
-/** Make an agent's conversation with its hello turn, in the org folder. Resolves { ok, sessionId, reply, model, error }. */
+/**
+ * Make an agent's conversation with its hello turn, in the org folder: one turn, no tools, no MCP servers, and only
+ * the folder's own settings (its hooks; your user settings, such as a chime at the end of each turn, stay out of
+ * setup). Resolves { ok, sessionId, reply, model, error }.
+ */
 export function createConversation({ claude, folder, slug, name, org, sessionId = crypto.randomUUID(), timeoutMs = 180_000 }) {
   const args = [
     '-p', helloPrompt({ name, org }), '--agent', slug, '--session-id', sessionId, '--name', name,
-    '--output-format', 'json', '--max-turns', '1', '--tools', '', '--strict-mcp-config', '--effort', 'low',
+    '--output-format', 'json', '--max-turns', '1', '--tools', '', '--strict-mcp-config', '--setting-sources', 'project,local', '--effort', 'low',
   ];
   return new Promise((resolve) => {
     execFile(claude, args, { cwd: folder, env: { ...windowsUserEnv(), [HELLO_ENV]: '1' }, windowsHide: true, timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {

@@ -176,7 +176,7 @@ try {
   for (const folder of folders) fs.rmSync(folder, { recursive: true, force: true });
   for (const f of fs.existsSync(turnsDir(INSTANCE)) ? fs.readdirSync(turnsDir(INSTANCE)) : []) {
     const file = path.join(turnsDir(INSTANCE), f);
-    try { if (sessions.some((s) => f === `session-${s}.json` || fs.readFileSync(file, 'utf8').includes(s))) fs.rmSync(file, { force: true }); } catch { /* gone */ }
+    try { if (sessions.some((s) => f.startsWith(`session-${s}.`) || fs.readFileSync(file, 'utf8').includes(s))) fs.rmSync(file, { force: true }); } catch { /* gone */ }
   }
 }
 const failed = checks.filter((c) => !c.ok);

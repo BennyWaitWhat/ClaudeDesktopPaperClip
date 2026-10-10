@@ -48,10 +48,16 @@ export function takeInbox(instance, agentId) {
 const WHY = {
   issue_created: 'was made for you',
   issue_assigned: 'was given to you',
+  issue_assignment_recovery: 'was given back to you',
   issue_commented: 'has a new comment',
   issue_reopened_via_comment: 'was reopened with a comment',
+  issue_status_changed: 'had its status changed',
   issue_blockers_resolved: 'is no longer blocked',
+  issue_unblock_requested: 'asks you to unblock it',
   issue_children_completed: 'had all its sub-cards finished',
+  issue_continuation_needed: 'needs you to carry on',
+  issue_disposition_repair: 'was still in progress when your turn ended (done, in review, blocked, or backlog?)',
+  interaction_resolved: 'had your question answered',
   approval_approved: 'had its approval granted',
 };
 

@@ -1,24 +1,16 @@
 // The Claude Desktop plugin's worker. It gives each new org its folder, moves the org to Claude Desktop, and keeps
 // the org's folder and its agents' Desktop conversations in step with Paperclip (org-sync.mjs): at once when
 // Paperclip's live activity feed shows an agent hired, changed or removed, and once a minute besides.
-import os from 'node:os';
 import path from 'node:path';
 import { definePlugin, runWorker } from '@paperclipai/plugin-sdk';
 import { desktopClaudeCode, handOffWhenQuiet, openInDesktop, windowsUserEnv } from '../desktop.mjs';
-import { desktopOrgs, isDesktopOrg, readOrg, switchOrg } from '../desktop-orgs.mjs';
-import { markHandedOff, noteNewCard, paperclipApi, syncOrg } from '../org-sync.mjs';
+import { desktopOrgs, isDesktopOrg, pluginKeeps, readOrg, REHEARSAL_ORG, switchOrg } from '../desktop-orgs.mjs';
+import { markHandedOff, noteNewCard, paperclipApi, paperclipInstance, syncOrg } from '../org-sync.mjs';
 import { applyUiFixes } from '../paperclip-ui-fixes.mjs';
 import { desktopFolder, ensureFolder, ensureOrgFolder, orgFolderName } from './folders.mjs';
 
 export const FOLDER_KEY = 'org';
 const WHERE_NEW_ORGS_GO = { scopeKind: 'instance', stateKey: 'new-org-parent' };
-
-/** Paperclip's instance folder, found the way Paperclip finds it (plugin workers start without its settings). */
-export function paperclipInstance(env = process.env) {
-  const raw = env.PAPERCLIP_HOME?.trim();
-  const home = !raw ? path.join(os.homedir(), '.paperclip') : path.resolve(raw === '~' ? os.homedir() : raw.startsWith('~/') ? path.join(os.homedir(), raw.slice(2)) : raw);
-  return path.join(home, 'instances', env.PAPERCLIP_INSTANCE_ID?.trim() || 'default');
-}
 
 // What the worker works with; tests swap these before setup.
 export const options = {
@@ -56,6 +48,7 @@ const log = (level, message, meta) => host?.logger?.[level]?.(message, meta);
 const syncing = new Map();
 const again = new Set();
 export function syncSoon(companyId, why) {
+  if (!pluginKeeps(readOrg(options.instance, companyId))) return Promise.resolve();
   if (syncing.has(companyId)) { again.add(companyId); return syncing.get(companyId); }
   const run = (async () => {
     do {
@@ -111,7 +104,7 @@ const AGENT_CHANGES = new Set([
 ]);
 const feeds = new Map();
 function watchOrg(companyId) {
-  if (!options.watch || feeds.has(companyId) || typeof WebSocket !== 'function') return;
+  if (!options.watch || feeds.has(companyId) || typeof WebSocket !== 'function' || !pluginKeeps(readOrg(options.instance, companyId))) return;
   const feed = new WebSocket(`${api().replace(/^http/, 'ws')}/api/companies/${companyId}/events/ws`);
   feeds.set(companyId, feed);
   feed.addEventListener('message', (m) => {
@@ -141,7 +134,7 @@ const plugin = definePlugin({
     const fixes = applyUiFixes();
     ctx.logger.info('Paperclip page fixes', fixes);
 
-    const onDesktop = desktopOrgs(options.instance);
+    const onDesktop = desktopOrgs(options.instance).filter(pluginKeeps);
     ctx.logger.info('Orgs on Claude Desktop', { orgs: onDesktop.map((o) => ({ companyId: o.companyId, folder: o.folder })) });
     for (const org of onDesktop) { watchOrg(org.companyId); syncSoon(org.companyId, 'start'); }
     const tick = setInterval(() => {
@@ -152,6 +145,8 @@ const plugin = definePlugin({
     // Making an org makes its folder and moves it to Claude Desktop, before its first agent exists.
     ctx.events.on('company.created', async (event) => {
       const companyId = event.companyId ?? event.entityId;
+      const company = await ctx.companies.get(companyId);
+      if (REHEARSAL_ORG.test(company?.name ?? '')) return; // scripts/org-rehearsal.mjs brings it in itself
       const org = await setDesktop(ctx, companyId, true);
       ctx.logger.info('New org on Claude Desktop', { companyId, folder: org.folder });
     });

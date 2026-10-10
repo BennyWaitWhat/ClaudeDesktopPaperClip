@@ -26,9 +26,20 @@ export function updateOrg(instance, companyId, change) {
 /** True when the org works from Claude Desktop. */
 export const isDesktopOrg = (instance, companyId) => Boolean(companyId) && readOrg(instance, companyId)?.desktop === true;
 
-/** Switch an org to Claude Desktop (with its folder), or back; its conversations are kept either way. */
-export const switchOrg = (instance, companyId, { on, folder }) =>
-  updateOrg(instance, companyId, (org) => ({ ...org, desktop: Boolean(on), folder: folder ?? org.folder, switchedAt: new Date().toISOString() }));
+/**
+ * Switch an org to Claude Desktop (with its folder), or back; its conversations are kept either way. `plugin: false`
+ * keeps the plugin out of it (a rehearsal brings the org in itself, and nothing goes to Claude Desktop).
+ */
+export const switchOrg = (instance, companyId, { on, folder, plugin }) =>
+  updateOrg(instance, companyId, (org) => ({
+    ...org, desktop: Boolean(on), folder: folder ?? org.folder, ...(plugin === undefined ? {} : { plugin }), switchedAt: new Date().toISOString(),
+  }));
+
+/** True when the plugin keeps this org in step (every org on Claude Desktop, unless a rehearsal set it aside). */
+export const pluginKeeps = (org) => org?.desktop === true && org.plugin !== false;
+
+// Orgs scripts/org-rehearsal.mjs makes: the plugin leaves them to it from the moment they are created.
+export const REHEARSAL_ORG = /^cdpc rehearsal /;
 
 /** Every org switched to Claude Desktop: [{ companyId, folder, ... }]. */
 export function desktopOrgs(instance) {

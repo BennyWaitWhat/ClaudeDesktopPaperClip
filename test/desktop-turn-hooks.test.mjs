@@ -17,10 +17,13 @@ const GIT_BASH = ['C:/Program Files/Git/bin/bash.exe', 'C:/Program Files (x86)/G
 const tmp = (name) => fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`));
 const line = (e) => `${JSON.stringify(e)}\n`;
 
-/** A stand-in Paperclip: who am I, a key, the org, cards by short name, run status, wakeups (runs end at once with `quick`). */
-async function fakePaperclip({ quick = false } = {}) {
+/**
+ * A stand-in Paperclip: who am I, a key, the org, cards by short name, run status, wakeups (runs end at once with
+ * `quick`; `folds` lists runs already going that the next wakes are folded into, as Paperclip does).
+ */
+async function fakePaperclip({ quick = false, folds = [] } = {}) {
   const calls = [];
-  const runs = new Map();
+  const runs = new Map(folds.map((f) => [f.id, f.status]));
   const server = http.createServer(async (req, res) => {
     let body = '';
     for await (const chunk of req) body += chunk;
@@ -34,6 +37,8 @@ async function fakePaperclip({ quick = false } = {}) {
     if (req.url.startsWith('/api/issues/')) return send(404, { error: 'Issue not found' });
     if (req.url.startsWith('/api/heartbeat-runs/')) return send(200, { id: last, status: runs.get(last) ?? 'succeeded' });
     if (req.url === '/api/agents/agent-1/wakeup') {
+      const fold = folds.shift();
+      if (fold) return send(202, { id: fold.id, agentId: 'agent-1', status: fold.status });
       const id = `run-${calls.length}`;
       runs.set(id, quick ? 'succeeded' : 'running');
       return send(202, { id, agentId: 'agent-1', status: 'queued' });
@@ -191,6 +196,28 @@ test("the session hook gives the conversation its access, with the current turn'
   }
 });
 
+test("a turn folded into one of Paperclip's own runs already going waits for it, then gets its own", async () => {
+  const paperclip = await fakePaperclip({ folds: [{ id: 'paperclips-own', status: 'running' }] });
+  try {
+    const instance = tmp('instance');
+    const { org, transcript } = orgFolder();
+    setTimeout(() => paperclip.runs.set('paperclips-own', 'succeeded'), 400);
+    const out = await run(HOOK, ['--api', paperclip.api, '--instance', instance], {
+      stdin: { hook_event_name: 'UserPromptSubmit', session_id: 'conv-5', transcript_path: transcript, cwd: org, prompt: 'Take LEM-8' },
+    });
+    const wakes = paperclip.calls.filter((c) => c.url === '/api/agents/agent-1/wakeup');
+    assert.equal(wakes.length, 2, 'asked again once that run was over');
+    assert.match(wakes[1].body.idempotencyKey, /:1$/, 'as a new request');
+    const runId = fs.readFileSync(runIdFile(turnsDir(instance), 'conv-5'), 'utf8');
+    assert.notEqual(runId, 'paperclips-own');
+    assert.ok(fs.existsSync(turnFile(turnsDir(instance), runId)), 'the turn is recorded by its own run');
+    assert.ok(!fs.existsSync(turnFile(turnsDir(instance), 'paperclips-own')));
+    assert.match(JSON.parse(out.stdout).hookSpecificOutput.additionalContext, new RegExp(`Paperclip run ${runId} records this turn`));
+  } finally {
+    paperclip.close();
+  }
+});
+
 test("paperclip-card moves the rest of a turn to the card's own run", async () => {
   const paperclip = await fakePaperclip();
   try {
@@ -214,6 +241,13 @@ test("paperclip-card moves the rest of a turn to the card's own run", async () =
     assert.equal(JSON.parse(fs.readFileSync(sessionFile(dir, 'conv-1'), 'utf8')).runId, runId);
     assert.equal(fs.readFileSync(runIdFile(dir, 'conv-1'), 'utf8'), runId);
     assert.equal(JSON.parse(fs.readFileSync(turnFile(dir, runId), 'utf8')).issueId, 'card-8');
+
+    const wakesSoFar = paperclip.calls.filter((c) => c.url === '/api/agents/agent-1/wakeup').length;
+    const again = await run(CARD_TOOL, ['LEM-8'], { env });
+    assert.equal(again.code, 0);
+    assert.match(again.stdout, /already on LEM-8/);
+    assert.equal(paperclip.calls.filter((c) => c.url === '/api/agents/agent-1/wakeup').length, wakesSoFar, 'the card it is on: nothing moves');
+    assert.ok(!fs.existsSync(doneFile(dir, runId)), 'and its run goes on');
 
     const unknown = await run(CARD_TOOL, ['LEM-404'], { env });
     assert.equal(unknown.code, 1);

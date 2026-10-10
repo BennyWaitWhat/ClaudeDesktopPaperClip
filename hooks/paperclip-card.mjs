@@ -4,7 +4,7 @@
 // conversation (its environment comes from the org folder's SessionStart hook, hooks/desktop-session.mjs).
 //   node paperclip-card.mjs LEM-8
 import fs from 'node:fs';
-import { namedCard, openTurnRun, turnsDir } from '../desktop-turn.mjs';
+import { doneFile, namedCard, openTurnRun, sessionFile, turnFile, turnsDir } from '../desktop-turn.mjs';
 
 const env = process.env;
 const card = process.argv[2];
@@ -22,11 +22,19 @@ if (!found) {
   console.error(`Paperclip has no card ${card}.`);
   process.exit(1);
 }
+// Already on that card: nothing to move (ending the run here would leave the card to Paperclip's repair).
+const dir = turnsDir(env.PAPERCLIP_INSTANCE_ROOT);
+const readJson = (file) => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; } };
+const current = readJson(sessionFile(dir, env.CLAUDE_DESKTOP_SESSION_ID))?.runId;
+if (current && readJson(turnFile(dir, current))?.issueId === found.id && !fs.existsSync(doneFile(dir, current))) {
+  console.log(`This turn's run ${current} is already on ${found.identifier}, and $PAPERCLIP_RUN_ID holds it: nothing to move.`);
+  process.exit(0);
+}
 let offset = 0;
 try { offset = fs.statSync(env.CLAUDE_DESKTOP_TRANSCRIPT).size; } catch { /* nothing yet */ }
 const runId = await openTurnRun({
   api, token, agentId: env.PAPERCLIP_AGENT_ID, sessionId: env.CLAUDE_DESKTOP_SESSION_ID, transcript: env.CLAUDE_DESKTOP_TRANSCRIPT,
-  cwd: process.cwd(), dir: turnsDir(env.PAPERCLIP_INSTANCE_ROOT), offset, issueId: found.id,
+  cwd: process.cwd(), dir, offset, issueId: found.id,
 });
 if (!runId) {
   console.error(`Paperclip did not start a run on ${found.identifier} (it may already have a run going, or Paperclip is not answering).`);
