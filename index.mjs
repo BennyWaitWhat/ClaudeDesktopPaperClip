@@ -16,18 +16,22 @@
 //      Claude Code and rewrites .claude/settings.local.json on every run.
 //   4. Paperclip-only tools. Paperclip passes its run tools as the only MCP servers (--strict-mcp-config);
 //      here they load next to your own MCP servers and claude.ai connectors.
-// The org folder is the folder Paperclip already runs the agent in (the project's workspace, or the
-// agent's cwd), so Claude Code loads that folder's CLAUDE.md, .claude/ and memory.
+// Each run works in a real folder, so Claude Code loads its CLAUDE.md, .claude/ and memory: the card's project
+// folder when the project has one, else the agent's own folder (cwd), else the org's folder from the Claude
+// Desktop plugin (plugin/), never the hidden folders Paperclip falls back to.
 //
 // Claude Desktop sees the agents' sessions: each session is named "<card> · <agent>", and a run that starts a
 // new conversation hands it to Claude Desktop (claude --desktop --resume), which lists it in the sidebar under
 // that folder. A run waits while you are mid-turn in the agent's session in Claude Desktop.
-import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+
+// Same cache-busting query as this file, so Paperclip's adapter reload also reloads the shared helpers.
+const desktop = await import(new URL(`./desktop.mjs${new URL(import.meta.url).search}`, import.meta.url).href);
+export const { desktopClaudeCode, liveSessions, openInDesktop, windowsUserEnv } = desktop;
 
 /** Folder of a @paperclipai package next to the running Paperclip (realpath, so the server's own copy). */
 export function findPaperclipPackage(name, starts = [
@@ -48,78 +52,11 @@ export function findPaperclipPackage(name, starts = [
   return null;
 }
 
-const list = (dir) => { try { return fs.readdirSync(dir); } catch { return []; } };
-const compareVersions = (a, b) => {
-  const pa = a.split(/[.-]/).map((n) => Number.parseInt(n, 10) || 0);
-  const pb = b.split(/[.-]/).map((n) => Number.parseInt(n, 10) || 0);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pa[i] ?? 0) - (pb[i] ?? 0);
-  return 0;
-};
-
-// Claude Desktop is a packaged Windows app: its %APPDATA%\Claude is only visible under that name to programs
-// it starts. Everything else finds the same folder under %LOCALAPPDATA%\Packages\Claude_*\LocalCache\Roaming.
-function desktopCodeRoots(env) {
-  const roots = [path.join(env.APPDATA ?? path.join(os.homedir(), 'AppData', 'Roaming'), 'Claude', 'claude-code')];
-  const packages = path.join(env.LOCALAPPDATA ?? path.join(os.homedir(), 'AppData', 'Local'), 'Packages');
-  for (const pkg of list(packages)) if (/^Claude_/i.test(pkg)) roots.push(path.join(packages, pkg, 'LocalCache', 'Roaming', 'Claude', 'claude-code'));
-  return roots;
-}
-
-/** The newest Claude Code that Claude Desktop installed (Windows), or null. */
-export function desktopClaudeCode(env = process.env) {
-  if (process.platform !== 'win32') return null;
-  let best = null;
-  for (const root of desktopCodeRoots(env)) {
-    for (const version of list(root)) {
-      if (!/^\d+\.\d+/.test(version)) continue;
-      for (const build of list(path.join(root, version))) {
-        const file = path.join(root, version, build, 'claude.exe');
-        if (!fs.existsSync(file)) continue;
-        const mtime = fs.statSync(file).mtimeMs;
-        const order = best ? compareVersions(version, best.version) : 1;
-        if (order > 0 || (order === 0 && mtime > best.mtime)) best = { version, file, mtime };
-      }
-    }
-  }
-  return best ? { version: best.version, file: best.file } : null;
-}
-
 /** Claude Desktop's title for an agent's session: "<card> · <agent>", or the agent alone without a card. */
 export function sessionTitle(ctx) {
   const card = ctx.context?.paperclipWake?.issue?.identifier ?? ctx.context?.issueIdentifier;
   const name = ctx.agent?.name ?? 'Agent';
   return String(card ? `${card} · ${name}` : name).replace(/[\r\n]+/g, ' ').slice(0, 120);
-}
-
-/** Live Claude Code sessions on this PC, from Claude Code's own registry (~/.claude/sessions/<pid>.json). */
-export function liveSessions(dir = path.join(os.homedir(), '.claude', 'sessions')) {
-  const out = [];
-  for (const f of list(dir)) {
-    if (!/^\d+\.json$/.test(f)) continue;
-    try {
-      const s = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
-      process.kill(s.pid, 0); // throws when the process is gone
-      out.push({ pid: s.pid, sessionId: s.sessionId, status: s.status, kind: s.kind, hostSessionId: s.hostSessionId });
-    } catch { /* stale or unreadable */ }
-  }
-  return out;
-}
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/** Hand a Claude Code conversation to Claude Desktop (claude --desktop --resume), which lists it in the sidebar. */
-export function openInDesktop(sessionId, cwd, claude = desktopClaudeCode()?.file ?? 'claude') {
-  if (process.platform !== 'win32') return Promise.resolve({ ok: false, reason: 'only on Windows so far' });
-  if (!UUID.test(String(sessionId))) return Promise.resolve({ ok: false, reason: 'not a session id' });
-  // `claude --desktop` refuses to run without a real console, so it gets a hidden one of its own.
-  const q = (s) => `'${String(s).replace(/'/g, "''")}'`;
-  const command = `Start-Process -FilePath ${q(claude)} -ArgumentList '--desktop','--resume',${q(sessionId)} -WorkingDirectory ${q(cwd)} -WindowStyle Hidden -Wait`;
-  return new Promise((resolve) => {
-    const p = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], { windowsHide: true, stdio: 'ignore' });
-    const timer = setTimeout(() => { p.kill(); resolve({ ok: false, reason: 'timed out' }); }, 30_000);
-    p.on('exit', (code) => { clearTimeout(timer); resolve(code === 0 ? { ok: true } : { ok: false, reason: `exit ${code}` }); });
-    p.on('error', (e) => { clearTimeout(timer); resolve({ ok: false, reason: e.message }); });
-  });
 }
 
 // What Paperclip's managed AI connection puts in a run's environment (its throwaway home and token).
@@ -165,6 +102,52 @@ const claudePkg = findPaperclipPackage('adapter-claude-local');
 if (!claudePkg) throw new Error('claude-native: cannot find @paperclipai/adapter-claude-local next to the running Paperclip.');
 const builtin = await import(pathToFileURL(path.join(claudePkg, 'dist', 'server', 'index.js')).href);
 const info = await import(pathToFileURL(path.join(claudePkg, 'dist', 'index.js')).href);
+const paperclipUtils = await import(pathToFileURL(path.join(findPaperclipPackage('adapter-utils'), 'dist', 'server-utils.js')).href);
+const paperclipPaths = await import(pathToFileURL(path.join(findPaperclipPackage('shared'), 'dist', 'home-paths.js')).href);
+
+// The Claude Desktop plugin (plugin/ next to this file) keeps each org's folder.
+export const ORG_FOLDER_PLUGIN = 'claude-desktop-paperclip';
+const FALLBACK_SOURCES = new Set(['agent_home', 'project_primary', 'task_session']);
+const inside = (child, parent) => {
+  const rel = path.relative(path.resolve(parent), path.resolve(child));
+  return Boolean(rel) && !rel.startsWith('..') && !path.isAbsolute(rel);
+};
+
+/**
+ * True when Paperclip had no folder for this run and picked one of its own inside its data folder: the agent's
+ * home, or the stand-in it makes for a project with no folder. A project folder you set is never one of them.
+ */
+export function isFallbackFolder(workspace, paperclipRoot = paperclipPaths.resolvePaperclipInstanceRoot()) {
+  const ws = workspace ?? {};
+  if (!ws.cwd || ws.workspaceId || ws.worktreePath || !FALLBACK_SOURCES.has(ws.source)) return false;
+  return inside(ws.cwd, paperclipRoot);
+}
+
+/** The agent's org folder, asked of the Claude Desktop plugin with the run's own token; null when it has none. */
+export async function fetchOrgFolder(ctx, { fetchImpl = fetch, apiUrl } = {}) {
+  if (!ctx.authToken) return null;
+  const base = String(apiUrl ?? paperclipUtils.buildPaperclipEnv(ctx.agent).PAPERCLIP_API_URL).replace(/\/+$/, '');
+  try {
+    const res = await fetchImpl(`${base}/api/plugins/${ORG_FOLDER_PLUGIN}/api/org-folder`, {
+      headers: { Authorization: `Bearer ${ctx.authToken}`, 'x-paperclip-run-id': String(ctx.runId ?? '') },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return null;
+    const dir = (await res.json())?.path;
+    return typeof dir === 'string' && path.isAbsolute(dir) && fs.existsSync(dir) ? dir : null;
+  } catch {
+    return null; // plugin off or not answering: Paperclip's own choice stands
+  }
+}
+
+/** Where a run works when Paperclip had no folder for it: the agent's own folder, else its org's folder. */
+export async function runFolder(ctx, options = {}) {
+  if (!isFallbackFolder(ctx.context?.paperclipWorkspace, options.paperclipRoot)) return null;
+  const own = typeof ctx.config?.cwd === 'string' ? ctx.config.cwd.trim() : '';
+  if (own && path.isAbsolute(own) && fs.existsSync(own)) return { cwd: own, from: "the agent's own folder" };
+  const org = await fetchOrgFolder(ctx, options);
+  return org ? { cwd: org, from: 'the org folder' } : null;
+}
 
 const native = (ctx, extra = {}) => nativeConfig(ctx.config, { agentId: ctx.agent?.id, command: desktopClaudeCode()?.file, ...extra });
 
@@ -182,18 +165,23 @@ async function execute(ctx) {
     await sleep(5000);
   }
 
+  // No folder from Paperclip for this run: work in the org's folder, not a hidden Paperclip one.
+  const folder = await runFolder(ctx);
+  const context = folder ? { ...ctx.context, paperclipWorkspace: { ...ctx.context.paperclipWorkspace, cwd: folder.cwd } } : ctx.context;
+  if (folder) await log(`Working in ${folder.from}: ${folder.cwd}`);
+
   const title = sessionTitle(ctx);
   const mcp = await writeRunMcpConfig(ctx.runId, ctx.runtimeMcp?.getServers?.() ?? []);
   let result;
   try {
-    result = await builtin.execute({ ...ctx, config: native(ctx, { mcpConfigPath: mcp?.file, title }), runtimeMcp: undefined });
+    result = await builtin.execute({ ...ctx, context, config: native(ctx, { mcpConfigPath: mcp?.file, title }), runtimeMcp: undefined });
   } finally {
     if (mcp) await fsp.rm(mcp.dir, { recursive: true, force: true }).catch(() => {});
   }
 
   // A new conversation goes to Claude Desktop's sidebar, under the folder it ran in.
   const session = result?.sessionId ?? result?.sessionParams?.sessionId;
-  const cwd = result?.sessionParams?.cwd ?? ctx.config?.cwd;
+  const cwd = result?.sessionParams?.cwd ?? folder?.cwd ?? ctx.config?.cwd;
   if (session && session !== prior && cwd) {
     const opened = await openInDesktop(session, cwd);
     await log(opened.ok ? `Opened in Claude Desktop as "${title}".` : `Could not open it in Claude Desktop (${opened.reason}).`);

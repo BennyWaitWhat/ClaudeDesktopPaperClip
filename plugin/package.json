@@ -1,0 +1,18 @@
+{
+  "name": "paperclip-plugin-claude-desktop",
+  "version": "0.1.0",
+  "description": "Paperclip plugin: each new org gets its own folder as part of creating it, and a card can open its agent conversation in Claude Desktop.",
+  "private": true,
+  "type": "module",
+  "paperclipPlugin": {
+    "manifest": "./manifest.js",
+    "worker": "./worker.js",
+    "ui": "./ui/"
+  },
+  "dependencies": {
+    "@paperclipai/plugin-sdk": "2026.1005.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

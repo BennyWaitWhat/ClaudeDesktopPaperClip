@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createServerAdapter, desktopClaudeCode, findPaperclipPackage, liveSessions, nativeConfig, openInDesktop, sessionTitle, THROWAWAY_ENV, writeRunMcpConfig } from '../index.mjs';
+import { createServerAdapter, desktopClaudeCode, fetchOrgFolder, findPaperclipPackage, isFallbackFolder, liveSessions, nativeConfig, openInDesktop, ORG_FOLDER_PLUGIN, runFolder, sessionTitle, THROWAWAY_ENV, windowsUserEnv, writeRunMcpConfig } from '../index.mjs';
 
 test("finds Paperclip's own Claude adapter", () => {
   const dir = findPaperclipPackage('adapter-claude-local');
@@ -54,8 +54,52 @@ test("reads Claude Code's live-session registry, skipping dead entries", () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('opens only real session ids in Claude Desktop', async () => {
+test('opens only real session ids, in folders that exist, in Claude Desktop', async () => {
   assert.equal((await openInDesktop("x'; Remove-Item C:\\ -Recurse", 'C:/')).ok, false);
+  const gone = await openInDesktop('5bb63481-e691-487d-a5b2-16e23978da0d', path.join(os.tmpdir(), 'no-such-folder-xyz'));
+  assert.equal(gone.reason, process.platform === 'win32' ? 'its folder is gone' : 'only on Windows so far');
+});
+
+test('fills in the Windows basics a plugin worker starts without, keeping what is there', { skip: process.platform !== 'win32' }, () => {
+  const env = windowsUserEnv({ PATH: 'C:/x', APPDATA: 'D:/mine' });
+  assert.equal(env.PATH, 'C:/x');
+  assert.equal(env.APPDATA, 'D:/mine');
+  assert.equal(env.USERPROFILE, os.homedir());
+  assert.ok(env.SystemRoot && env.LOCALAPPDATA && env.TEMP && env.USERNAME, JSON.stringify(env));
+});
+
+const ROOT = path.join(os.tmpdir(), 'pc-root');
+const ws = (over) => ({ cwd: path.join(ROOT, 'workspaces', 'agent-1'), source: 'agent_home', workspaceId: null, ...over });
+
+test("tells Paperclip's hidden fallback folders from folders someone chose", () => {
+  assert.equal(isFallbackFolder(ws(), ROOT), true, 'agent home');
+  assert.equal(isFallbackFolder(ws({ source: 'project_primary', cwd: path.join(ROOT, 'projects', 'c', 'p', '_default') }), ROOT), true, 'project with no folder');
+  assert.equal(isFallbackFolder(ws({ source: 'task_session' }), ROOT), true, 'old session in the agent home');
+  assert.equal(isFallbackFolder(ws({ source: 'project_primary', workspaceId: 'w1', cwd: 'C:/Work/Repo' }), ROOT), false, 'project folder you set');
+  assert.equal(isFallbackFolder(ws({ source: 'project_primary', workspaceId: 'w1' }), ROOT), false, 'a set project folder, even inside Paperclip');
+  assert.equal(isFallbackFolder(ws({ worktreePath: path.join(ROOT, 'wt') }), ROOT), false, 'isolated worktree');
+  assert.equal(isFallbackFolder(ws({ source: 'task_session', cwd: 'C:/Users/me/Desktop/Test Org' }), ROOT), false, 'already in the org folder');
+  assert.equal(isFallbackFolder(ws({ source: 'execution_workspace' }), ROOT), false);
+  assert.equal(isFallbackFolder(undefined, ROOT), false);
+});
+
+test("asks the Claude Desktop plugin for the org folder with the run's own token", async () => {
+  const org = fs.mkdtempSync(path.join(os.tmpdir(), 'native-org-'));
+  const calls = [];
+  const fetchImpl = async (url, init) => { calls.push({ url, auth: init.headers.Authorization }); return { ok: true, json: async () => ({ path: org }) }; };
+  const ctx = { authToken: 'run-jwt', runId: 'r1', agent: { id: 'a1', companyId: 'c1' }, config: {}, context: { paperclipWorkspace: ws() } };
+  assert.equal(await fetchOrgFolder(ctx, { fetchImpl, apiUrl: 'http://127.0.0.1:3100/' }), org);
+  assert.deepEqual(calls, [{ url: `http://127.0.0.1:3100/api/plugins/${ORG_FOLDER_PLUGIN}/api/org-folder`, auth: 'Bearer run-jwt' }]);
+  assert.equal(await fetchOrgFolder({ ...ctx, authToken: undefined }, { fetchImpl, apiUrl: 'http://x' }), null, 'no token, no ask');
+  assert.equal(await fetchOrgFolder(ctx, { fetchImpl: async () => { throw new Error('down'); }, apiUrl: 'http://x' }), null, 'plugin off');
+  assert.equal(await fetchOrgFolder(ctx, { fetchImpl: async () => ({ ok: true, json: async () => ({ path: path.join(org, 'gone') }) }), apiUrl: 'http://x' }), null, 'folder missing');
+
+  const opts = { fetchImpl, apiUrl: 'http://x', paperclipRoot: ROOT };
+  assert.deepEqual(await runFolder(ctx, opts), { cwd: org, from: 'the org folder' });
+  assert.deepEqual(await runFolder({ ...ctx, config: { cwd: os.tmpdir() } }, opts), { cwd: os.tmpdir(), from: "the agent's own folder" });
+  const project = { ...ctx, context: { paperclipWorkspace: ws({ source: 'project_primary', workspaceId: 'w1', cwd: 'C:/Work/Repo' }) } };
+  assert.equal(await runFolder(project, opts), null, 'a set project folder wins');
+  fs.rmSync(org, { recursive: true, force: true });
 });
 
 test('a managed run config becomes a native one', () => {
