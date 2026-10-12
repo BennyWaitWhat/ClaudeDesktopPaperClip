@@ -101,6 +101,13 @@ Before it hires an org's first agent, Paperclip's wizard runs a short Claude che
 `testEnvironment`). It runs with Claude Desktop's Claude Code and your own setup. The wizard also asks for a
 Claude connection per org; the Desktop agents do not use it.
 
+That connection ("Connect a model") reads command-line Claude's sign-in from `~/.claude/.credentials.json` and
+never renews it. The token there lasts 8 hours and only Claude Code renews it, when it runs, so with the agents in
+Claude Desktop the wizard would soon say "Could not verify the local subscription". The plugin checks the file every
+minute and, once the token has expired, renews it with a one-turn, no-tools Haiku call (`claude-sign-in.mjs`), about
+once every 8 hours. It also clears the lock a renewal cut short by a reboot leaves behind, which otherwise blocks every
+later renewal. With no sign-in at all it does nothing: run `claude auth login` yourself.
+
 ## Switch it on
 
 1. `npm install` in `plugin/` (the plugin's one dependency, Paperclip's plugin SDK).

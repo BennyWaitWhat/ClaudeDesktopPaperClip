@@ -1,10 +1,12 @@
 // The Claude Desktop plugin's worker. It gives each new org its folder, moves the org to Claude Desktop, and keeps
 // the org's folder and its agents' Desktop conversations in step with Paperclip (org-sync.mjs): at once when
-// Paperclip's live activity feed shows an agent hired, changed or removed, and once a minute besides.
+// Paperclip's live activity feed shows an agent hired, changed or removed, and once a minute besides. It also keeps
+// command-line Claude's sign-in fresh for Paperclip's own Claude checks (claude-sign-in.mjs).
 import path from 'node:path';
 import { definePlugin, runWorker } from '@paperclipai/plugin-sdk';
 import { desktopClaudeCode, handOffWhenQuiet, openInDesktop, windowsUserEnv } from '../desktop.mjs';
 import { desktopOrgs, isDesktopOrg, pluginKeeps, readOrg, REHEARSAL_ORG, switchOrg } from '../desktop-orgs.mjs';
+import { keepSignInFresh } from '../claude-sign-in.mjs';
 import { markHandedOff, noteNewCard, paperclipApi, paperclipInstance, syncOrg } from '../org-sync.mjs';
 import { applyUiFixes } from '../paperclip-ui-fixes.mjs';
 import { desktopFolder, ensureFolder, ensureOrgFolder, orgFolderName } from './folders.mjs';
@@ -21,6 +23,8 @@ export const options = {
   noteCard: noteNewCard,
   watch: true,
   tickMs: 60_000,
+  signIn: keepSignInFresh,
+  signInMs: 60_000,
 };
 const api = () => options.api ?? paperclipApi(options.instance);
 const claude = () => desktopClaudeCode(windowsUserEnv())?.file ?? 'claude';
@@ -116,6 +120,19 @@ function watchOrg(companyId) {
   feed.addEventListener('error', () => {});
 }
 
+// Paperclip's wizard reads command-line Claude's sign-in and never renews it; renew it once it expires.
+let renewing = null;
+function checkSignIn() {
+  renewing ??= options.signIn({ claude: claude() })
+    .then((result) => {
+      if (result.renewed) log('info', "Renewed command-line Claude's sign-in for Paperclip's Claude checks", { expiresAt: new Date(result.expiresAt).toISOString(), clearedLock: result.clearedLock });
+      else if (result.error) log('warn', "Command-line Claude's sign-in did not renew", { error: result.error });
+    })
+    .catch((err) => log('warn', "Checking command-line Claude's sign-in failed", { error: String(err) }))
+    .finally(() => { renewing = null; });
+  return renewing;
+}
+
 /** Move an org to Claude Desktop (its folder first), or back. */
 export async function setDesktop(ctx, companyId, on) {
   if (!on) return switchOrg(options.instance, companyId, { on: false });
@@ -141,6 +158,8 @@ const plugin = definePlugin({
       for (const org of desktopOrgs(options.instance)) { watchOrg(org.companyId); syncSoon(org.companyId, 'every minute'); }
     }, options.tickMs);
     tick.unref?.();
+    checkSignIn();
+    setInterval(checkSignIn, options.signInMs).unref?.();
 
     // Making an org makes its folder and moves it to Claude Desktop, before its first agent exists.
     ctx.events.on('company.created', async (event) => {
