@@ -15,13 +15,14 @@ import { fileURLToPath } from 'node:url';
 
 export const SESSION_HOOK = fileURLToPath(new URL('./hooks/desktop-session.mjs', import.meta.url));
 export const TURN_HOOK = fileURLToPath(new URL('./hooks/desktop-turn.mjs', import.meta.url));
-// Claude Desktop runs the conversations it is handed in "accept edits" mode: this approves their Paperclip calls only.
+// Every tool call in an org folder: lets an agent whose Paperclip "Skip permissions" is on go ahead without asking, and
+// approves the others' Paperclip calls only (hooks/paperclip-allow.mjs).
 export const ALLOW_HOOK = fileURLToPath(new URL('./hooks/paperclip-allow.mjs', import.meta.url));
 const OURS = [
   { event: 'SessionStart', script: SESSION_HOOK },
   { event: 'UserPromptSubmit', script: TURN_HOOK },
   { event: 'Stop', script: TURN_HOOK },
-  { event: 'PreToolUse', script: ALLOW_HOOK, matcher: 'Bash' },
+  { event: 'PreToolUse', script: ALLOW_HOOK, matcher: '*' },
 ];
 const q = (p) => `"${String(p).replace(/\\/g, '/')}"`;
 const isOurHook = (h) => typeof h?.command === 'string' && /desktop-(session|turn)\.mjs|paperclip-allow\.mjs/.test(h.command);

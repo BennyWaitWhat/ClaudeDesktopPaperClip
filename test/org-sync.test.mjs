@@ -78,8 +78,8 @@ test("an org's folder and Desktop conversations follow Paperclip: agent files, s
     fs.writeFileSync(path.join(folder, '.claude', 'agents', 'old-hand.md'), '---\nname: old-hand\npaperclip-agent-id: gone\n---\nGone.\n');
     fs.writeFileSync(path.join(folder, '.claude', 'agents', 'mine.md'), '---\nname: mine\n---\nNot from Paperclip.\n');
     const hellos = [];
-    const hello = async ({ folder: cwd, slug, name, org }) => {
-      hellos.push({ cwd, slug, name, org });
+    const hello = async ({ folder: cwd, slug, name, org, skipPermissions }) => {
+      hellos.push({ cwd, slug, name, org, skipPermissions });
       return { ok: true, sessionId: `${slug}-0000-4000-8000-000000000000`.slice(0, 36), reply: `Hi, I'm ${name}.`, model: 'claude-haiku-5-5' };
     };
     const sync = () => syncOrg({ api: paperclip.api, instance, companyId: ORG, node: 'node', claude: 'claude', hello });
@@ -91,6 +91,7 @@ test("an org's folder and Desktop conversations follow Paperclip: agent files, s
     assert.deepEqual(hellos.map((h) => h.slug), ['chief-of-staff', 'cashier'], "the Chief of Staff's conversation first; no conversation for agents that aren't Claude, are gone, or wait for approval");
     assert.equal(hellos[0].cwd, folder);
     assert.equal(hellos[0].org, 'Lemonade Stand');
+    assert.equal(hellos[0].skipPermissions, true, "Paperclip's Skip permissions (on unless turned off) reaches the hello, whose mode Desktop keeps");
     assert.deepEqual(fs.readdirSync(path.join(folder, '.claude', 'agents')).sort(), ['cashier.md', 'chief-of-staff.md', 'mine.md'], "a former agent's file goes; yours stays");
     assert.match(fs.readFileSync(path.join(folder, '.claude', 'agents', 'cashier.md'), 'utf8'), /model: claude-haiku-5-5[\s\S]*You are Cashier\./);
     const settings = JSON.parse(fs.readFileSync(path.join(folder, '.claude', 'settings.json'), 'utf8'));

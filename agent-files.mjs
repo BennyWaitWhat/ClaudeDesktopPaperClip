@@ -34,7 +34,13 @@ You are ${name}, an agent in the Paperclip org ${org}. You live in one Claude De
 
 const yaml = (value) => JSON.stringify(String(value));
 
-/** The agent file's text: frontmatter (name, description, model, effort, Paperclip id), then the system prompt. */
+/** Paperclip's "Skip permissions" switch for a Claude agent (on unless turned off, as in Paperclip's own Claude type). */
+export const skipsPermissions = (agent) => agent?.adapterConfig?.dangerouslySkipPermissions !== false;
+
+/**
+ * The agent file's text: frontmatter (name, description, model, effort, Skip permissions, Paperclip id), then the
+ * system prompt.
+ */
 export function agentMarkdown({ agent, slug, org, instructions }) {
   const name = String(agent?.name ?? 'Agent').replace(/[\r\n]+/g, ' ').trim() || 'Agent';
   const role = [agent?.title, agent?.role && agent.role !== 'general' ? agent.role : null].filter(Boolean)[0];
@@ -44,6 +50,7 @@ export function agentMarkdown({ agent, slug, org, instructions }) {
     `description: ${yaml(`Paperclip agent: ${name}${role ? `, ${role}` : ''}.`)}`,
     typeof config.model === 'string' && config.model.trim() ? `model: ${config.model.trim()}` : null,
     typeof config.effort === 'string' && config.effort.trim() ? `effort: ${config.effort.trim()}` : null,
+    `paperclip-skip-permissions: ${skipsPermissions(agent)}`,
     `paperclip-agent-id: ${agent.id}`,
   ].filter(Boolean);
   const prompt = [desktopNotes({ name, org }), String(instructions ?? '').trim()].filter(Boolean).join('\n\n');

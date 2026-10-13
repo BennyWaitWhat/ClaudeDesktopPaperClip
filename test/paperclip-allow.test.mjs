@@ -64,3 +64,42 @@ test('the hook says so to Claude Code, and stays quiet otherwise', async () => {
   assert.equal(await hook({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'rm -rf ~' } }), '');
   assert.equal(await hook({ hook_event_name: 'PreToolUse', tool_name: 'Write', tool_input: { file_path: 'x' } }), '');
 });
+
+test("Paperclip's Skip permissions switch decides, per agent, from the agent file", async () => {
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'org-'));
+  const agents = path.join(folder, '.claude', 'agents');
+  fs.mkdirSync(agents, { recursive: true });
+  const agentFile = (slug, id, skip) => fs.writeFileSync(path.join(agents, `${slug}.md`), `---\nname: ${slug}\ndescription: "x"\npaperclip-skip-permissions: ${skip}\npaperclip-agent-id: ${id}\n---\n\nHi.\n`);
+  agentFile('chief-of-staff', 'cos', true);
+  agentFile('cashier', 'cashier-id', false);
+  const transcript = (slug) => {
+    const file = path.join(folder, `${slug ?? 'plain'}.jsonl`);
+    fs.writeFileSync(file, slug ? `${JSON.stringify({ type: 'agent-setting', agentSetting: slug })}\n` : '');
+    return file;
+  };
+  const hook = (input) => new Promise((resolve) => {
+    const child = execFile(process.execPath, [HOOK, '--api', api, '--chief', 'cos'], (e, stdout) => resolve(stdout));
+    child.stdin.end(JSON.stringify({ hook_event_name: 'PreToolUse', cwd: folder, ...input }));
+  });
+  const anything = [
+    { tool_name: 'Bash', tool_input: { command: 'npm install' } },
+    { tool_name: 'Write', tool_input: { file_path: 'notes.md' } },
+    { tool_name: 'WebFetch', tool_input: { url: 'https://example.com' } },
+  ];
+  for (const call of anything) {
+    const out = JSON.parse(await hook({ ...call, transcript_path: transcript('chief-of-staff') }));
+    assert.equal(out.hookSpecificOutput.permissionDecision, 'allow', `switch on: ${call.tool_name}`);
+    assert.match(out.hookSpecificOutput.permissionDecisionReason, /Skip permissions/);
+    assert.equal(JSON.parse(await hook({ ...call, transcript_path: transcript(null) })).hookSpecificOutput.permissionDecision, 'allow', 'a plain conversation is the Chief of Staff');
+    assert.equal(await hook({ ...call, transcript_path: transcript('cashier') }), '', `switch off: ${call.tool_name} asks as usual`);
+  }
+  const call = JSON.parse(await hook({ tool_name: 'Bash', tool_input: { command: `curl -s "$PAPERCLIP_API_URL/api/agents/me" ${auth}` }, transcript_path: transcript('cashier') }));
+  assert.equal(call.hookSpecificOutput.permissionDecision, 'allow', 'switch off: Paperclip calls still go ahead');
+
+  agentFile('cashier', 'cashier-id', true); // turned on in Paperclip, file rewritten by the plugin
+  assert.equal(JSON.parse(await hook({ ...anything[0], transcript_path: transcript('cashier') })).hookSpecificOutput.permissionDecision, 'allow', 'applies from the next tool call');
+  assert.equal(await hook({ ...anything[0], transcript_path: transcript('stranger') }), '', 'not one of the org agents: left alone');
+});

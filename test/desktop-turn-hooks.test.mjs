@@ -269,7 +269,7 @@ test('an org folder gets all three hooks, keeps its own, and is left alone when 
   assert.match(settings.hooks.SessionStart.at(-1).hooks[0].command, /desktop-session\.mjs.*--chief 11111111/);
   assert.match(settings.hooks.UserPromptSubmit.at(-1).hooks[0].command, /desktop-turn\.mjs/);
   assert.match(settings.hooks.Stop.at(-1).hooks[0].command, /desktop-turn\.mjs/);
-  assert.equal(settings.hooks.PreToolUse.at(-1).matcher, 'Bash');
+  assert.equal(settings.hooks.PreToolUse.at(-1).matcher, '*');
   assert.match(settings.hooks.PreToolUse.at(-1).hooks[0].command, /paperclip-allow\.mjs/);
   assert.equal(settings.hooks.Stop[0].hooks[0].command, 'echo mine', 'its own Stop hook stays');
   assert.equal((await ensureOrgSettings(folder, { ...options, chiefId: null })).changed, false, 'again: nothing to change, the Chief of Staff kept');

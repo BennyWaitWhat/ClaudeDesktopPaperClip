@@ -5,6 +5,8 @@ import path from 'node:path';
 
 const read = (file) => { try { return fs.readFileSync(file, 'utf8'); } catch { return ''; } };
 export const agentIdOf = (definition) => definition.match(/^paperclip-agent-id:\s*(\S+)\s*$/m)?.[1] ?? null;
+/** The agent file's Skip permissions switch (agent-files.mjs writes it from Paperclip). */
+export const skipsPermissionsIn = (definition) => /^paperclip-skip-permissions:\s*true\s*$/m.test(definition);
 
 /** The agent the conversation started with (Claude Code records it in the transcript), else the one it runs as now. */
 export function conversationSlug({ transcriptPath, agentType }) {

@@ -1,9 +1,13 @@
-// PreToolUse hook (Bash) in an org folder (org-folder.mjs puts it in .claude/settings.json). Claude Desktop runs the
-// conversations it is handed in "accept edits" mode, so every Bash command asks you first, including the Paperclip
-// calls agents make to hand each other work while you are away. This approves those calls and nothing else: curl to
-// this Paperclip's own API, and hooks/paperclip-card.mjs, with echo, printf or jq alongside. Any other command gets no
-// answer from this hook and is decided as usual.
-//   node paperclip-allow.mjs --api <Paperclip URL>
+// PreToolUse hook (every tool) in an org folder (org-folder.mjs puts it in .claude/settings.json). Claude Desktop runs
+// the conversations it is handed in "accept edits" mode at most (it never imports bypass), so without this every Bash
+// command and most other tools would ask you first, including while you are away.
+//   - An agent whose Paperclip "Skip permissions" switch is on (Paperclip's default for Claude agents; the agent file
+//     carries it, agent-files.mjs) goes ahead without asking, the way Paperclip's own Claude type runs it.
+//   - Any other conversation in the folder gets its Paperclip calls approved and nothing else: curl to this
+//     Paperclip's own API, and hooks/paperclip-card.mjs, with echo, printf, jq, head, tail or sleep alongside. Anything
+//     else gets no answer from this hook and is decided as usual.
+// Turning the switch in Paperclip applies from the agent's next tool call (the plugin rewrites the agent file).
+//   node paperclip-allow.mjs --api <Paperclip URL> [--chief <Chief of Staff id>]
 import { fileURLToPath } from 'node:url';
 
 const CARD_TOOL = fileURLToPath(new URL('./paperclip-card.mjs', import.meta.url));
@@ -123,11 +127,25 @@ export function paperclipOnly(command, { api }) {
   return calls > 0;
 }
 
-if (process.argv[1] && norm(fileURLToPath(import.meta.url)) === norm(process.argv[1])) {
-  const { hookArgs, hookInput } = await import('../paperclip-access.mjs');
-  const { api } = hookArgs();
-  const input = await hookInput();
+/** The hook's answer for one tool call, or null to leave it to the usual question. */
+export function decide(input, { api, chiefId = null, agentFor }) {
+  const agent = agentFor({ cwd: input?.cwd, transcriptPath: input?.transcript_path, agentType: input?.agent_type, chiefId });
+  if (agent?.skip) return { permissionDecision: 'allow', permissionDecisionReason: 'Skip permissions is on for this agent in Paperclip (ClaudeDesktopPaperClip)' };
   if (input?.tool_name === 'Bash' && paperclipOnly(input.tool_input?.command, { api })) {
-    process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', permissionDecisionReason: 'A call to this Paperclip (ClaudeDesktopPaperClip)' } }));
+    return { permissionDecision: 'allow', permissionDecisionReason: 'A call to this Paperclip (ClaudeDesktopPaperClip)' };
   }
+  return null;
+}
+
+if (process.argv[1] && norm(fileURLToPath(import.meta.url)) === norm(process.argv[1])) {
+  const { conversationAgent, hookArgs, hookInput, skipsPermissionsIn } = await import('../paperclip-access.mjs');
+  const { api, chiefId } = hookArgs();
+  const input = await hookInput();
+  const agentFor = (where) => {
+    if (!where.cwd) return null;
+    const agent = conversationAgent(where);
+    return agent ? { ...agent, skip: skipsPermissionsIn(agent.definition) } : null;
+  };
+  const answer = input ? decide(input, { api, chiefId, agentFor }) : null;
+  if (answer) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', ...answer } }));
 }

@@ -71,9 +71,10 @@ lives and works, and where Benny talks to them.
   hands it to Desktop at a 20-second pause in Benny's typing; Desktop switches to it once. The plugin learns of a
   hire from the org's live activity feed, so it starts within a second of the hire. Rehearsal orgs
   (`cdpc rehearsal …`) are left alone, so a rehearsal never reaches Benny's Desktop.
-- Desktop runs handed-over conversations in accept-edits mode even though Benny's default is bypass. The org
-  folder approves the agents' Paperclip calls only (`hooks/paperclip-allow.mjs`); switching an agent's
-  conversation to bypass stays Benny's one approval in Desktop.
+- Desktop never imports bypass. Benny (2026-10-12, after a hire's first turn stopped to ask): "All this should be
+  automated and manageable in config." So the agent's Paperclip Skip permissions switch decides: on (Paperclip's
+  default), the org folder's hook approves every tool call; off, its Paperclip calls only. Model and effort come
+  from Paperclip the same way (the agent file).
 - An agent with no model set in Paperclip runs on Desktop's default model (the wizard's Chief of Staff has none
   unless Benny picks one).
 

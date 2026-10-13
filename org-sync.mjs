@@ -6,14 +6,16 @@
 //   - .claude/paperclip-team.md: the team and each member's Desktop conversation, for hand-offs;
 // and each agent gets its one conversation: a hello turn as that agent (one turn, no tools: setup, never work;
 // its first reply is also what keeps the conversation its own agent rather than the folder's default), which the
-// plugin then hands to Claude Desktop's sidebar at a pause in your typing.
+// plugin then hands to Claude Desktop's sidebar at a pause in your typing. Desktop takes the conversation's model and
+// permission mode from that hello (never bypass: it makes that "accept edits"), so the hello runs in the mode the
+// agent's Paperclip "Skip permissions" switch asks for; the org folder's PreToolUse hook does the rest.
 import { execFile } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { readInstructions, removeOtherAgentFiles, syncSkills, writeAgentFile } from './agent-files.mjs';
+import { readInstructions, removeOtherAgentFiles, skipsPermissions, syncSkills, writeAgentFile } from './agent-files.mjs';
 import { windowsUserEnv } from './desktop.mjs';
 import { readOrg, updateOrg } from './desktop-orgs.mjs';
 import { HELLO_ENV } from './desktop-turn.mjs';
@@ -47,12 +49,14 @@ export const helloPrompt = ({ name, org }) =>
 /**
  * Make an agent's conversation with its hello turn, in the org folder: one turn, no tools, no MCP servers, and only
  * the folder's own settings (its hooks; your user settings, such as a chime at the end of each turn, stay out of
- * setup). Resolves { ok, sessionId, reply, model, error }.
+ * setup). Desktop keeps the hello's permission mode: "accept edits" when Paperclip's Skip permissions is on, else the
+ * usual mode. Resolves { ok, sessionId, reply, model, error }.
  */
-export function createConversation({ claude, folder, slug, name, org, sessionId = crypto.randomUUID(), timeoutMs = 180_000 }) {
+export function createConversation({ claude, folder, slug, name, org, skipPermissions = true, sessionId = crypto.randomUUID(), timeoutMs = 180_000 }) {
   const args = [
     '-p', helloPrompt({ name, org }), '--agent', slug, '--session-id', sessionId, '--name', name,
     '--output-format', 'json', '--max-turns', '1', '--tools', '', '--strict-mcp-config', '--setting-sources', 'project,local', '--effort', 'low',
+    '--permission-mode', skipPermissions ? 'acceptEdits' : 'default',
   ];
   return new Promise((resolve) => {
     const child = execFile(claude, args, { cwd: folder, env: { ...windowsUserEnv(), [HELLO_ENV]: '1' }, windowsHide: true, timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
@@ -137,7 +141,7 @@ export async function syncOrg({ api, instance, companyId, node = process.execPat
   for (const agent of team) {
     const known = readOrg(instance, companyId)?.conversations?.[agent.id];
     if (known?.ready || (known?.failedAt && now() - Date.parse(known.failedAt) < RETRY_MS)) continue;
-    const result = await hello({ claude, folder, slug: slugs.get(agent.id), name: agent.name, org });
+    const result = await hello({ claude, folder, slug: slugs.get(agent.id), name: agent.name, org, skipPermissions: skipsPermissions(agent) });
     made.push({ agentId: agent.id, name: agent.name, ...result });
     updateOrg(instance, companyId, (o) => ({
       ...o,

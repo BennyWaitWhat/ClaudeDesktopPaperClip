@@ -194,7 +194,14 @@ Found in the Haiku rehearsals (`scripts/org-rehearsal.mjs`, 2026-10-10, 25 of 25
 11. **A run on a card that ends with the card still in progress gets a repair wake** (`issue_disposition_repair`),
     which waits for Desktop like any other. So a turn leaves its cards done, in review, blocked or in backlog,
     and moving partway to another card (`paperclip-card`) is for a different card only.
-12. **Claude Desktop runs a conversation it is handed in "accept edits" mode** (it turns bypass into accept edits
-    for imported conversations), so Bash asks first: the org folder's PreToolUse hook approves the agents'
-    Paperclip calls only.
+12. **Claude Desktop takes a handed-over conversation's permission mode and model from the conversation itself**
+    (its last recorded turn), never bypass (it turns bypass into accept edits), and sets no effort. So the plugin's
+    hello runs in the mode the agent's Paperclip Skip permissions switch asks for (accept edits when on, the usual
+    mode when off; a hello in the usual mode showed as "Manual"), and the org folder's PreToolUse hook (every tool)
+    approves everything for an agent whose switch is on, its Paperclip calls only otherwise. Desktop starts the
+    conversation's Claude Code with `--model` but no `--effort` and no `--agent`; with no effort picked in
+    Desktop, the turn runs at the agent file's effort (seen in the transcript: "medium" while the footer read
+    "Extra"). An effort picked in Desktop's footer wins over the agent file (an `--effort` flag beats it, tested).
+    Claude Code also has `effortLevel` and a clamp, `maxEffortLevel` (per model under `modelSettings`), in
+    settings, unused here.
 13. **Paperclip reloads a local plugin when its files change** (its dev watcher), within a second.

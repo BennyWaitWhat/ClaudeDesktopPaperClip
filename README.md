@@ -31,11 +31,12 @@ The org folder's `.claude/settings.json` runs three hooks (`org-folder.mjs` puts
   Paperclip lets a run comment on and update only its own card freely (and up to 20 others). Partway through a
   turn, `node hooks/paperclip-card.mjs <CARD>` moves the rest of it to that card's own run.
 - **Stop**: the turn's end ends its run.
-- **PreToolUse for Bash** (`hooks/paperclip-allow.mjs`): Claude Desktop runs the conversations it is handed in
-  "accept edits" mode, so every Bash command would ask first, including the Paperclip calls agents make to hand
-  each other work while you are away. This approves those calls only (curl to this Paperclip's API and
-  `paperclip-card`, with echo, printf, jq, head, tail or sleep alongside); every other command asks as usual. To
-  run an agent's conversation in bypass mode like your own sessions, switch it in Desktop (one approval each).
+- **PreToolUse** (`hooks/paperclip-allow.mjs`, every tool): Claude Desktop never imports a conversation in bypass
+  mode (it makes it "accept edits"), so most tools would ask first, including while you are away. The agent's
+  Paperclip **Skip permissions** switch decides instead: on (Paperclip's default for Claude agents, and how
+  Paperclip's own Claude type runs them), the agent goes ahead without asking; off, only its Paperclip calls go
+  ahead (curl to this Paperclip's API and `paperclip-card`, with echo, printf, jq, head, tail or sleep alongside)
+  and everything else asks as usual. A change in Paperclip applies from the agent's next tool call.
 
 The turn also opens with what happened in Paperclip since the agent's last turn, and, once, with the agent's
 instructions when they were edited in Paperclip since the conversation got them.
@@ -53,8 +54,10 @@ agent's Desktop conversation.
 ## Agent files
 
 Each agent is a Claude Code agent in the org folder, `.claude/agents/<agent>.md` (`agent-files.mjs`): a short
-note on working from Claude Desktop, then its Paperclip instructions, with the model and effort Paperclip
-sets for it. Claude Code loads it once per conversation as the system prompt; nothing is resent each turn. A
+note on working from Claude Desktop, then its Paperclip instructions, with the model, effort and Skip permissions
+switch Paperclip sets for it. All three are managed in Paperclip: Desktop runs the conversation on the agent's model
+and effort (the effort Desktop's footer shows for a handed-over conversation is only its own default until you pick
+one there; picking one there overrides Paperclip's for that conversation), and the hook above reads the switch. Claude Code loads it once per conversation as the system prompt; nothing is resent each turn. A
 file of that name that is not the agent's is never overwritten. The Paperclip skills the org's agents have
 are copied into `.claude/skills/`.
 

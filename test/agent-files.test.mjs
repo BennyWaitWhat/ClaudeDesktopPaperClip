@@ -14,17 +14,18 @@ test('an agent name becomes a Claude Code agent name', () => {
   assert.equal(agentSlug(''), 'agent');
 });
 
-test("an agent file: its Paperclip model, effort and id up top, the Desktop notes, then its Paperclip instructions", () => {
+test("an agent file: its Paperclip model, effort, Skip permissions and id up top, the Desktop notes, then its Paperclip instructions", () => {
   const md = agentMarkdown({ agent: cashier, slug: 'cashier', org: 'Lemonade Stand', instructions: 'You run the till.' });
   const [, front, body] = md.match(/^---\n([\s\S]*?)\n---\n\n([\s\S]*)$/);
   assert.deepEqual(front.split('\n'), [
-    'name: cashier', 'description: "Paperclip agent: Cashier, Runs the till."', 'model: claude-haiku-5-5', 'effort: medium', `paperclip-agent-id: ${cashier.id}`,
+    'name: cashier', 'description: "Paperclip agent: Cashier, Runs the till."', 'model: claude-haiku-5-5', 'effort: medium', 'paperclip-skip-permissions: true', `paperclip-agent-id: ${cashier.id}`,
   ]);
   assert.match(body, /^## Working from Claude Desktop\n\nYou are Cashier, an agent in the Paperclip org Lemonade Stand\./);
   assert.match(body, /\$PAPERCLIP_RUN_ID/);
   assert.match(body, /paperclip-card\.mjs" <CARD>/);
   assert.match(body, /You run the till\.\n$/);
   assert.doesNotMatch(agentMarkdown({ agent: { ...cashier, adapterConfig: {} }, slug: 'cashier', org: 'X', instructions: '' }), /^(model|effort):/m, 'nothing Paperclip does not set');
+  assert.match(agentMarkdown({ agent: { ...cashier, adapterConfig: { dangerouslySkipPermissions: false } }, slug: 'cashier', org: 'X', instructions: '' }), /^paperclip-skip-permissions: false$/m, 'Skip permissions turned off in Paperclip');
 });
 
 test('agent files are written once per change, never over someone else\'s file, and follow a rename', async () => {
