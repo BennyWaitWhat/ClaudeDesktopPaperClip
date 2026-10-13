@@ -1,6 +1,7 @@
 # Grill: a Paperclip team that lives in Claude Desktop
 
-Started 2026-10-09 (`/grill-me-general` "on everything"), finished 2026-10-10 after 23 questions. Benny's answers are
+Started 2026-10-09 (`/grill-me-general` "on everything"), finished 2026-10-10 after 23 questions; an architecture
+review on 2026-10-12 added Q24-Q26. Benny's answers are
 quoted word for word in the record below; this top part is the distilled result.
 
 ## Intent
@@ -10,6 +11,8 @@ quoted word for word in the record below; this top part is the distilled result.
 > "im trying to get claude desktop claude code to adopt how it works and populate the ui kinda thing." (Q3)
 
 > "Our version of paperclip is going to be claude desktop native." (Q13)
+
+> "Each thing or part of the application needs an employee." (Q25) / "I need to get back to working on my projects and need to import them." (Q24)
 
 Paperclip stays the place where the team is set up and watched; Claude Desktop's Claude Code is where every agent
 lives and works, and where Benny talks to them.
@@ -26,9 +29,10 @@ lives and works, and where Benny talks to them.
 
 ## Key decisions
 
-1. **One Desktop conversation per agent** (Q2), in the org's folder; clicking it in the sidebar is how Benny talks to
-   it; a new chat in the org folder is the Chief of Staff; setup gives each conversation one short hello reply so
-   it keeps its agent (Q6).
+1. **One Desktop conversation per agent** (Q2, kept after the token review in Q24), in the org's folder; clicking it
+   in the sidebar is how Benny talks to it; a new chat in the org folder is the Chief of Staff; setup gives each
+   conversation one short hello reply so it keeps its agent (Q6). Each agent file carries only the tools its job
+   needs (Q24).
 2. **Making an org or an agent in Paperclip puts it in Desktop at once** (Q7, Q20): the org folder and the agent's
    conversation, with one Desktop switch; the hiring agent brings its hires in. Why: Benny answered in Paperclip's
    onboarding card only because Desktop showed nothing.
@@ -47,6 +51,10 @@ lives and works, and where Benny talks to them.
 9. **Order**: a fresh test org (Chief of Staff, Cashier, Lemonade Maker, Supplies Person; Haiku 5.5 at medium
    effort; Benny drives it through the real UI), then Career Catchers, then GA Pardon and CloudFlare on Benny's go
    (Q18-Q20, Q22).
+10. **One employee per part of a project** (Q25). For Career Ops: the 11 roles of the 2026-10-12 review (Chief of
+    Staff, Scout, Evaluator, Writer, Fact checker, Applier, Tracker, Networker, Coach, Analyst, Steward), plus any the
+    Career ops Engine session finds from how the repo is really used, plus an owner for Benny's inbox. Every
+    employee runs on Opus 5.5 at max effort (Q26).
 
 ## Surfaced assumptions
 
@@ -126,7 +134,23 @@ lives and works, and where Benny talks to them.
 | Q21 | He does something for an agent inside Paperclip (assigns it a card, comments on its card, answers a question it asked there): what happens in Desktop? | It waits for the agent's next turn in Desktop, which sees it first; nothing starts on its own | picked "Waits for next turn (Recommended)" |
 | Q22 | Once the fresh test org works, in what order do the real orgs move over? | Career Catchers first, right after the fresh test passes (its job-search work has been on hold since 2026-10-09); GA Pardon and CloudFlare follow on Benny's go | picked "Career Catchers first (Recommended)" |
 | Q23 | Career Catchers' agents need the Career Ops files in their org folder: a separate copy or a link to the one folder? | A separate copy inside the org folder, kept in step through GitHub (as in Q8/Q9); the link was offered as the recommendation and not taken | picked "Separate copy, synced" |
+| Q24 | Is the setup token efficient, and how should employees run? (an architecture review with measured per-call loads, below) | One Desktop conversation per employee stays, trimmed: each agent file carries only its job's tools, its role and the project files it owns. A fresh subagent per card, handed out by the Chief, was offered as the recommendation and not taken | "Is that token efficent tho? cant each employee's job/role be an agent.md or md? I think we are setting up our whole thing incorrectly for each employee." / "i think we need an architectural review to get this right. I need to get back to working on my projects and need to import them." / picked "One conversation each" |
+| Q25 | Which roster for Career Ops? | One employee per part of career-ops: the 11 in the review's diagram; more if the Career ops Engine session, which knows the repo's own changes and customs, finds parts with no owner; and someone manages Benny's inbox (his Evaluate, Skip, Apply and Gap-check choices on Paperclip cards) so he gets back to applying | "Look at the Career Ops github repo and how its suppose to work. Each thing or part of the application needs an employee." / "1 and there may be more if you talk to Engine sesssion. Because my repo has been used differently with changes and customs. I also have a benny inbox that needs to be managed to get back to applying to jobs again." |
+| Q26 | Which models for the employees? | Opus 5.5 at max effort for every employee; a split (Opus for documents, Sonnet for the rest) was offered as the recommendation and not taken | picked "Opus max for everyone" |
 | Q6 | How does he start talking to a specific agent? | Click its one conversation in the sidebar, under the org's folder; a brand-new chat in the org folder is the Chief of Staff; setup gives each agent one short hello reply, once, so it keeps its own identity | picked "Click it in the sidebar (Recommended)" |
+
+## Token review (2026-10-12, for Q24)
+
+- One model call carries, measured with one Haiku turn per setup (command-line Claude 2.1.294): a default session in
+  Career Ops 70k tokens; an agent file limited to 4 tools there 38k; the same agent file in a folder without Career
+  Ops' always-on files 6k. Those always-on files (CLAUDE.md with AGENTS.md, HANDOFF, the memory index) are about 32k
+  on every call of every conversation in Career Ops.
+- A Desktop agent conversation with every tool on (TTEESSTT ORG) carries 62k before any work. Custom subagents in
+  Career Ops start near 74k (career-ops-worker and -writer, 135 runs); the read-only Explore agent near 38k.
+- Career Catchers on Paperclip's own engine, 2026-10-08 and -09: 63 model runs re-read 341M cached tokens, about $245
+  at API prices; one Steward run re-read 30M.
+- Levers: an agent file's `tools` list cuts the most; `omitClaudeMd` skips the always-on files for subagents only (a
+  conversation running as an agent always loads them); Claude Code's agent teams don't run in Desktop.
 
 ## Verified facts (checked in Claude Desktop 2.31226.1 and Claude Code 2.1.295, 2026-10-09)
 
