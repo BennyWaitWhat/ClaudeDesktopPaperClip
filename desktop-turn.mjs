@@ -75,6 +75,52 @@ export async function namedCard({ api, token, text, prefix = null }) {
   return null;
 }
 
+// Work goes on cards (Benny, 2026-10-12: "its concerning that no one made a card"). A turn that is on no card is told
+// so when it starts, and stopped once before it ends; making the card is one command (hooks/paperclip-card.mjs --new).
+const OPEN_STATUSES = new Set(['backlog', 'todo', 'in_progress', 'blocked', 'in_review']);
+const cardList = (json) => (Array.isArray(json) ? json : Array.isArray(json?.issues) ? json.issues : Array.isArray(json?.items) ? json.items : []);
+
+/** The agent's own open cards, most recently updated first (at most `limit`). */
+export async function openCards({ api, token, companyId, agentId, limit = 5 }) {
+  const res = await paperclipCall(api, `/api/companies/${companyId}/issues?assigneeAgentId=${encodeURIComponent(agentId)}&limit=100`, { token });
+  return cardList(res.json)
+    .filter((c) => c?.assigneeAgentId === agentId && OPEN_STATUSES.has(c.status))
+    .sort((a, b) => String(b.updatedAt ?? '').localeCompare(String(a.updatedAt ?? '')))
+    .slice(0, limit);
+}
+
+/** One line per open card, for a turn that is on no card yet. */
+export const openCardsText = (cards) => (cards.length
+  ? `Your open cards: ${cards.map((c) => `${c.identifier} "${String(c.title ?? '').replace(/\s+/g, ' ').slice(0, 80)}" (${c.status})`).join('; ')}.`
+  : 'You have no open cards.');
+
+/**
+ * Make a card for work the agent was asked for in Desktop: assigned to the agent, in backlog so Paperclip does not
+ * wake the agent for it (the turn takes it up itself). Returns the card, or { error }.
+ */
+export async function createOwnCard({ api, token, companyId, agentId, runId, title, description }) {
+  const res = await paperclipCall(api, `/api/companies/${companyId}/issues`, {
+    method: 'POST', token, runId,
+    body: { title, ...(description ? { description } : {}), status: 'backlog', assigneeAgentId: agentId },
+  });
+  return (res.status === 200 || res.status === 201) && res.json?.id ? res.json : { error: `Paperclip answered ${res.status}: ${JSON.stringify(res.json ?? {}).slice(0, 200)}` };
+}
+
+/** Claim a card for this run, the way Paperclip's agents do (checkout: in_progress, held by the run). */
+export async function checkoutCard({ api, token, issueId, agentId, runId }) {
+  const res = await paperclipCall(api, `/api/issues/${issueId}/checkout`, {
+    method: 'POST', token, runId, body: { agentId, expectedStatuses: ['backlog', 'todo', 'blocked', 'in_review'] },
+  });
+  return res.status === 200;
+}
+
+/** The conversation's current turn run: { runId, issueId, done }, or null when it has none. */
+export function currentTurn(dir, sessionId) {
+  const runId = readJson(sessionFile(dir, sessionId))?.runId;
+  const turn = runId ? readJson(turnFile(dir, runId)) : null;
+  return turn ? { runId, issueId: turn.issueId ?? null, done: fs.existsSync(doneFile(dir, runId)) } : null;
+}
+
 /**
  * Remove files no run will read: a run's own files go when it ends, but a run Paperclip cancels before the adapter
  * starts never reads its turn file. Done markers go after an hour, turn files and run ids after a day. What a

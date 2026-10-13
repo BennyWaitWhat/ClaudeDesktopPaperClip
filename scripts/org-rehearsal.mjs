@@ -6,7 +6,9 @@
 //   2. one hello conversation per agent, as that agent, on Paperclip's model, recorded as a Paperclip run;
 //   3. a card the board gives the Cashier in Paperclip waits: it goes to backlog and into the Cashier's inbox;
 //   4. the Cashier's next turn (its conversation, resumed) opens with that, and takes the card to done through the
-//      Paperclip API with its own key and the turn's run id, all of it recorded as one run on the card.
+//      Paperclip API with its own key and the turn's run id, all of it recorded as one run on the card;
+//   5. work asked for in Desktop (no card named) becomes a card the Cashier makes itself, recorded as a run on it,
+//      never parked; 6. chat makes no card.
 // Then it removes everything it made (the org is archived, its agents terminated). A few Haiku turns.
 //   node scripts/org-rehearsal.mjs [--keep]      (--keep leaves it all for a look; then:)
 //   node scripts/org-rehearsal.mjs --clean <org id>
@@ -164,6 +166,30 @@ try {
   const turnRuns = cashierRuns.filter((r) => r.contextSnapshot?.issueId === card.id && r.contextSnapshot?.wakeReason === 'desktop_turn');
   check('the turn is one Paperclip run on the card', turnRuns.length === 1 && turnRuns[0].status === 'succeeded', cashierRuns.map((r) => [r.contextSnapshot?.wakeReason, r.status]));
   check('the inbox was handed over, and nothing new waits', !fs.existsSync(inboxFile(INSTANCE, cashier.id)));
+
+  // 5. Work asked for in Desktop goes on a card the agent makes itself (paperclip-card.mjs --new), recorded on it.
+  const before = new Set(list((await call(`/api/companies/${org.id}/issues`)).json).map((c) => c.id));
+  const ask = await claudeTurn(['-p', 'I spent $20.40 at Taco Maco on lemons for the stand.',
+    '--resume', cashierSession, '--output-format', 'json', '--max-turns', '25', '--permission-mode', 'acceptEdits'], folder);
+  check('no step of the request was refused for lack of approval', !(ask.out?.permission_denials?.length), ask.out?.permission_denials?.map((d) => d.tool_input?.command ?? d.tool_name));
+  check('the request turn finished', ask.out && !ask.out.is_error, ask.out?.result?.slice?.(0, 300) ?? ask.stderr.slice(0, 300));
+  await sleep(3000);
+  const made = list((await call(`/api/companies/${org.id}/issues`)).json).filter((c) => !before.has(c.id));
+  const own = made.find((c) => c.assigneeAgentId === cashier.id && c.createdByAgentId === cashier.id);
+  check('the request became a card the Cashier made, assigned to itself', own, made.map((c) => [c.identifier, c.title, c.status, c.createdByAgentId === cashier.id ? 'by cashier' : c.createdByUserId ?? c.createdByAgentId]));
+  check('the card is left done, in review, or blocked on the board', own && ['done', 'in_review', 'blocked'].includes(own.status), own?.status);
+  const ownComments = own ? list((await call(`/api/issues/${own.id}/comments`)).json) : [];
+  check('and never parked as waiting for Desktop', own && !ownComments.some((c) => /Waiting for my next turn/.test(c.body)), ownComments.map((c) => String(c.body).slice(0, 60)));
+  const askRuns = own ? (await runsOf(cashier.id)).filter((r) => r.contextSnapshot?.issueId === own.id) : [];
+  check('the work is a Paperclip run on that card', askRuns.some((r) => r.contextSnapshot?.wakeReason === 'desktop_turn' && r.status === 'succeeded'), askRuns.map((r) => [r.contextSnapshot?.wakeReason, r.status]));
+  check('Paperclip woke no one for it', !fs.existsSync(inboxFile(INSTANCE, cashier.id)) && askRuns.every((r) => r.contextSnapshot?.wakeReason === 'desktop_turn'));
+
+  // 6. Chat needs no card: the end-of-turn check lets it end as it is.
+  const cardsBefore = list((await call(`/api/companies/${org.id}/issues`)).json).length;
+  const chat = await claudeTurn(['-p', 'Thanks, that is all for now.',
+    '--resume', cashierSession, '--output-format', 'json', '--max-turns', '10', '--permission-mode', 'acceptEdits'], folder);
+  check('the chat turn finished', chat.out && !chat.out.is_error, chat.out?.result?.slice?.(0, 300) ?? chat.stderr.slice(0, 300));
+  check('and made no card', list((await call(`/api/companies/${org.id}/issues`)).json).length === cardsBefore, chat.out?.result?.slice?.(0, 200));
 } catch (error) {
   check('rehearsal finished', false, error.stack ?? error.message);
 } finally {

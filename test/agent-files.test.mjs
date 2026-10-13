@@ -23,6 +23,8 @@ test("an agent file: its Paperclip model, effort, Skip permissions and id up top
   assert.match(body, /^## Working from Claude Desktop\n\nYou are Cashier, an agent in the Paperclip org Lemonade Stand\./);
   assert.match(body, /\$PAPERCLIP_RUN_ID/);
   assert.match(body, /paperclip-card\.mjs" <CARD>/);
+  assert.match(body, /Work goes on cards/);
+  assert.match(body, /paperclip-card\.mjs" --new "<short title>"/);
   assert.match(body, /You run the till\.\n$/);
   assert.doesNotMatch(agentMarkdown({ agent: { ...cashier, adapterConfig: {} }, slug: 'cashier', org: 'X', instructions: '' }), /^(model|effort):/m, 'nothing Paperclip does not set');
   assert.match(agentMarkdown({ agent: { ...cashier, adapterConfig: { dangerouslySkipPermissions: false } }, slug: 'cashier', org: 'X', instructions: '' }), /^paperclip-skip-permissions: false$/m, 'Skip permissions turned off in Paperclip');

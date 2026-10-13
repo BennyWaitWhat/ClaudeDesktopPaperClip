@@ -77,6 +77,11 @@ lives and works, and where Benny talks to them.
   from Paperclip the same way (the agent file).
 - An agent with no model set in Paperclip runs on Desktop's default model (the wizard's Chief of Staff has none
   unless Benny picks one).
+- Effort: Paperclip sets the default, a pick in Desktop's footer overrides it for that conversation. Benny
+  (2026-10-12): "thats how i want it, i just want the default to be config'd thru paperclip."
+- Work goes on cards. Benny (2026-10-12, after a first round of messages in Desktop made none): "its concerning that
+  no one made a card." Every turn on no card is told so and stopped once before it ends; making the card is one
+  command (`paperclip-card.mjs --new`); chat and quick answers need none.
 
 ## Open questions (build details, not Benny's to decide)
 

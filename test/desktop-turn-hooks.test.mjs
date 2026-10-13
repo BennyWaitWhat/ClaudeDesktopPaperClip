@@ -21,18 +21,21 @@ const line = (e) => `${JSON.stringify(e)}\n`;
  * A stand-in Paperclip: who am I, a key, the org, cards by short name, run status, wakeups (runs end at once with
  * `quick`; `folds` lists runs already going that the next wakes are folded into, as Paperclip does).
  */
-async function fakePaperclip({ quick = false, folds = [] } = {}) {
+async function fakePaperclip({ quick = false, folds = [], cards = [] } = {}) {
   const calls = [];
   const runs = new Map(folds.map((f) => [f.id, f.status]));
   const server = http.createServer(async (req, res) => {
     let body = '';
     for await (const chunk of req) body += chunk;
-    calls.push({ method: req.method, url: req.url, auth: req.headers.authorization ?? null, body: body ? JSON.parse(body) : null });
+    calls.push({ method: req.method, url: req.url, auth: req.headers.authorization ?? null, runId: req.headers['x-paperclip-run-id'] ?? null, body: body ? JSON.parse(body) : null });
     const send = (status, json) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(json)); };
     const last = req.url.split('/').pop();
     if (req.url === '/api/agents/me') return send(req.headers.authorization === 'Bearer pcp_key' ? 200 : 401, { id: 'agent-1', name: 'Cashier', companyId: 'org-1' });
     if (req.url === '/api/agents/agent-1/keys') return send(201, { id: 'key-1', token: 'pcp_key', createdAt: 'now' });
     if (req.url === '/api/companies/org-1') return send(200, { id: 'org-1', name: 'Lemonade Stand', issuePrefix: 'LEM' });
+    if (req.method === 'GET' && req.url.startsWith('/api/companies/org-1/issues?')) return send(200, cards);
+    if (req.method === 'POST' && req.url === '/api/companies/org-1/issues') return send(201, { id: 'card-10', identifier: 'LEM-10', ...JSON.parse(body) });
+    if (req.method === 'POST' && req.url === '/api/issues/card-10/checkout') return send(200, { id: 'card-10', status: 'in_progress' });
     if (req.url === '/api/issues/LEM-8') return send(200, { id: 'card-8', identifier: 'LEM-8' });
     if (req.url.startsWith('/api/issues/')) return send(404, { error: 'Issue not found' });
     if (req.url.startsWith('/api/heartbeat-runs/')) return send(200, { id: last, status: runs.get(last) ?? 'succeeded' });
@@ -253,6 +256,83 @@ test("paperclip-card moves the rest of a turn to the card's own run", async () =
     assert.equal(unknown.code, 1);
     assert.match(unknown.stderr, /no card LEM-404/);
     assert.equal((await run(CARD_TOOL, ['LEM-8'], { env: { ...env, CLAUDE_DESKTOP_SESSION_ID: '' } })).code, 2, 'outside an agent conversation');
+  } finally {
+    paperclip.close();
+  }
+});
+
+test('work goes on cards: a turn on no card is told so with its open cards, and stopped once before it ends', async () => {
+  const cards = [
+    { id: 'card-8', identifier: 'LEM-8', title: 'Restock lemons', status: 'blocked', assigneeAgentId: 'agent-1', updatedAt: '2026-10-12T10:00:00Z' },
+    { id: 'card-7', identifier: 'LEM-7', title: 'Paint the sign', status: 'done', assigneeAgentId: 'agent-1', updatedAt: '2026-10-12T11:00:00Z' },
+    { id: 'card-6', identifier: 'LEM-6', title: 'Count the till', status: 'in_review', assigneeAgentId: 'someone-else', updatedAt: '2026-10-12T12:00:00Z' },
+  ];
+  const paperclip = await fakePaperclip({ quick: true, cards });
+  try {
+    const instance = tmp('instance');
+    const { org, transcript } = orgFolder();
+    const hook = (input, env) => run(HOOK, ['--api', paperclip.api, '--instance', instance], { stdin: { session_id: 'conv-5', transcript_path: transcript, cwd: org, ...input }, env });
+
+    const opened = JSON.parse((await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'I spent $20.40 at Taco Maco' })).stdout).hookSpecificOutput.additionalContext;
+    assert.match(opened, /on no card yet/);
+    assert.match(opened, /Work goes on cards/);
+    assert.match(opened, /paperclip-card\.mjs" --new "<short title>" --body "<what was asked>"/);
+    assert.match(opened, /Your open cards: LEM-8 "Restock lemons" \(blocked\)\./, 'its own open cards only');
+
+    const stop = { hook_event_name: 'Stop' };
+    const dir = turnsDir(instance);
+    const runId = fs.readFileSync(runIdFile(dir, 'conv-5'), 'utf8');
+    const first = JSON.parse((await hook(stop)).stdout);
+    assert.equal(first.decision, 'block', 'a turn ending on no card is stopped');
+    assert.match(first.reason, /on no Paperclip card/);
+    assert.match(first.reason, /without a card and without saying more/, 'chat can end as it is');
+    assert.ok(!fs.existsSync(doneFile(dir, runId)), 'and its run goes on');
+    assert.equal((await hook({ ...stop, stop_hook_active: true })).stdout, '', 'only once per turn');
+    assert.ok(fs.existsSync(doneFile(dir, runId)), 'then the turn ends');
+
+    // The hello that makes the conversation is never stopped.
+    await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'Reply with one short line of hello' }, { CLAUDE_DESKTOP_PAPERCLIP_HELLO: '1' });
+    assert.equal((await hook(stop, { CLAUDE_DESKTOP_PAPERCLIP_HELLO: '1' })).stdout, '');
+
+    // A turn on a card ends at once.
+    await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'LEM-8: the lemons came' });
+    assert.equal((await hook(stop)).stdout, '');
+  } finally {
+    paperclip.close();
+  }
+});
+
+test('paperclip-card --new makes the card, assigned to the agent, and the rest of the turn records on it, checked out', async () => {
+  const paperclip = await fakePaperclip();
+  try {
+    const instance = tmp('instance');
+    const { transcript } = orgFolder();
+    const dir = turnsDir(instance);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(turnFile(dir, 'run-plain'), JSON.stringify({ runId: 'run-plain', sessionId: 'conv-1', transcript, offset: 0 }));
+    fs.writeFileSync(sessionFile(dir, 'conv-1'), JSON.stringify({ runId: 'run-plain' }));
+    const env = {
+      PAPERCLIP_API_URL: paperclip.api, PAPERCLIP_API_KEY: 'pcp_key', PAPERCLIP_AGENT_ID: 'agent-1', PAPERCLIP_COMPANY_ID: 'org-1', PAPERCLIP_INSTANCE_ROOT: instance,
+      CLAUDE_DESKTOP_SESSION_ID: 'conv-1', CLAUDE_DESKTOP_TRANSCRIPT: transcript,
+    };
+
+    const made = await run(CARD_TOOL, ['--new', 'Record the Taco Maco expense', '--body', '$20.40 at Taco Maco; business or personal?'], { env });
+    assert.equal(made.code, 0, made.stderr);
+    const create = paperclip.calls.find((c) => c.method === 'POST' && c.url === '/api/companies/org-1/issues');
+    assert.deepEqual(create.body, { title: 'Record the Taco Maco expense', description: '$20.40 at Taco Maco; business or personal?', status: 'backlog', assigneeAgentId: 'agent-1' }, 'in backlog, so Paperclip does not wake the agent for it');
+    assert.equal(create.runId, 'run-plain', 'made by the turn so far');
+    const wake = paperclip.calls.find((c) => c.url === '/api/agents/agent-1/wakeup');
+    assert.deepEqual(wake.body.payload, { issueId: 'card-10' }, 'the rest of the turn runs on the new card');
+    const runId = made.stdout.match(/run (run-\d+)/)[1];
+    const checkout = paperclip.calls.find((c) => c.url === '/api/issues/card-10/checkout');
+    assert.equal(checkout.runId, runId, "claimed by the card's own run");
+    assert.deepEqual(checkout.body.agentId, 'agent-1');
+    assert.ok(fs.existsSync(doneFile(dir, 'run-plain')));
+    assert.equal(JSON.parse(fs.readFileSync(turnFile(dir, runId), 'utf8')).issueId, 'card-10');
+    assert.match(made.stdout, /Made LEM-10 "Record the Taco Maco expense", assigned to you and in progress/);
+
+    assert.equal((await run(CARD_TOOL, ['--new'], { env })).code, 2, 'a card needs a title');
+    assert.equal((await run(CARD_TOOL, ['--new', 'X'], { env: { ...env, PAPERCLIP_COMPANY_ID: '' } })).code, 2, 'outside an agent conversation');
   } finally {
     paperclip.close();
   }

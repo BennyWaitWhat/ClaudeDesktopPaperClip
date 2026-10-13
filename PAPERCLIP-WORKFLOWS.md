@@ -205,3 +205,9 @@ Found in the Haiku rehearsals (`scripts/org-rehearsal.mjs`, 2026-10-10, 25 of 25
     Claude Code also has `effortLevel` and a clamp, `maxEffortLevel` (per model under `modelSettings`), in
     settings, unused here.
 13. **Paperclip reloads a local plugin when its files change** (its dev watcher), within a second.
+14. **Making a card wakes its assignee unless it is made in backlog** (`queueIssueAssignmentWakeup` skips backlog),
+    even when the agent assigns the card to itself; moving a card out of backlog wakes the assignee too
+    (`issue_status_changed`). An agent's own checkout with its run id wakes no one (`shouldWakeAssigneeOnCheckout`).
+    So a card an agent makes for work asked of it in Desktop is made in backlog, its turn moves onto it
+    (`paperclip-card.mjs --new`), and that run checks it out (in_progress); a later wake about the card folds into
+    that run while it goes on (finding 10).

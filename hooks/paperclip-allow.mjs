@@ -116,7 +116,11 @@ export function paperclipOnly(command, { api }) {
     if (cmd === undefined) continue; // only setting id variables
     if (cmd === 'curl') { if (!paperclipCurl(args, bases)) return false; calls++; continue; }
     if (cmd === 'node') {
-      if (args.length !== 2 || norm(args[0]) !== norm(CARD_TOOL) || !/^[A-Z][A-Z0-9]{1,9}-\d{1,7}$/.test(args[1])) return false;
+      if (!args.length || norm(args[0]) !== norm(CARD_TOOL)) return false;
+      const rest = args.slice(1);
+      const moving = rest.length === 1 && /^[A-Z][A-Z0-9]{1,9}-\d{1,7}$/.test(rest[0]);
+      const making = rest[0] === '--new' && (rest.length === 2 || (rest.length === 4 && rest[2] === '--body'));
+      if (!moving && !making) return false;
       calls++;
       continue;
     }

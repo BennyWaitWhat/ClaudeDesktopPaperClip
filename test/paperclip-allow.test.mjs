@@ -17,6 +17,8 @@ test("an agent's Paperclip calls go ahead without asking", () => {
     `curl -fsSL -XPATCH "$PAPERCLIP_API_URL/api/issues/LEM-1" ${auth} --json '{"status":"done"}' -o /dev/null -w '%{http_code}' 2>/dev/null`,
     `curl -s http://localhost:3100/api/companies/x/issues?status=todo ${auth}`,
     `node "${CARD}" LEM-8`,
+    `node "${CARD}" --new "Record the Taco Maco expense" --body "$20.40, business or personal?"`,
+    `node "${CARD}" --new "Taco Mac lead"`,
     `curl -s "$PAPERCLIP_API_URL/api/issues/LEM-1" ${auth} &&\n  curl -s "$PAPERCLIP_API_URL/api/issues/LEM-2" ${auth}`,
     // What the rehearsal's Cashier wrote, word for word, in accept-edits mode.
     `ID=d9e3586d-74e9-4efb-b02b-9b1fe3f78fa5\ncurl -s -X POST ${auth} -H "Content-Type: application/json" -d '{"body":"Till counted: 3 lemonades sold."}' "$PAPERCLIP_API_URL/api/issues/$ID/comments" | head -c 300; echo\ncurl -s -X PATCH ${auth} -H "Content-Type: application/json" -d '{"status":"done"}' "$PAPERCLIP_API_URL/api/issues/$ID" | head -c 300; echo`,
@@ -46,6 +48,9 @@ test('anything else is left to the usual question', () => {
     `ID=abc`,
     `sleep 1d; curl "$PAPERCLIP_API_URL/x"`,
     'node other.mjs LEM-8',
+    `node "${CARD}" --new`,
+    `node "${CARD}" --new "x" --other y`,
+    `node "${CARD}" --new "x" --body`,
     `node "${CARD}" LEM-8; npm install`,
     'echo hi',
     `(curl "$PAPERCLIP_API_URL/x")`,

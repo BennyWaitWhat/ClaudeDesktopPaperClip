@@ -30,7 +30,13 @@ The org folder's `.claude/settings.json` runs three hooks (`org-folder.mjs` puts
   A turn whose message names one of the org's cards (a hand-off: "please take LEM-8") runs on that card, since
   Paperclip lets a run comment on and update only its own card freely (and up to 20 others). Partway through a
   turn, `node hooks/paperclip-card.mjs <CARD>` moves the rest of it to that card's own run.
-- **Stop**: the turn's end ends its run.
+- **Work goes on cards**, so Paperclip shows what the team is doing. A turn on no card is told so, with the
+  agent's open cards, and anything it is asked to do, record, track or follow up goes on a card first:
+  `node hooks/paperclip-card.mjs --new "<title>" --body "<what was asked>"` makes the card, assigned to the agent,
+  and the rest of the turn records on it, checked out (made in backlog, then claimed by the turn's own run, so
+  Paperclip never wakes the agent for it). Questions for you go on the card as a comment, with the card blocked.
+- **Stop**: the turn's end ends its run. A turn about to end still on no card is stopped once first and asked to
+  put its work on a card; chat and quick answers end as they are.
 - **PreToolUse** (`hooks/paperclip-allow.mjs`, every tool): Claude Desktop never imports a conversation in bypass
   mode (it makes it "accept edits"), so most tools would ask first, including while you are away. The agent's
   Paperclip **Skip permissions** switch decides instead: on (Paperclip's default for Claude agents, and how
@@ -149,7 +155,8 @@ remove it. Settings > Plugins: disable or remove Claude Desktop (org folders sta
 - `node scripts/org-rehearsal.mjs`: a live rehearsal on Haiku (a few turns) with a throwaway org named
   `cdpc rehearsal …`, which the plugin leaves alone, so nothing goes to Claude Desktop: agent files, hellos,
   a card the board gives in Paperclip waiting for the Cashier, and the Cashier's next turn (in accept-edits mode)
-  taking it to done. `--keep` leaves it for a look; `--clean <org id>` removes it.
+  taking it to done, a request made in Desktop becoming a card the Cashier makes itself, and chat making none.
+  `--keep` leaves it for a look; `--clean <org id>` removes it.
 
 ## Limits
 
