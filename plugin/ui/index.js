@@ -16,6 +16,49 @@ function FolderRow({ label, hint, value, onChange, onSave, busy }) {
     h('p', { className: 'text-xs text-muted-foreground' }, hint));
 }
 
+function ToolsRow({ agent, save }) {
+  const listed = agent.tools.join(', ');
+  const [saved, setSaved] = useState(listed);
+  const [value, setValue] = useState(listed);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState(null);
+  useEffect(() => { setSaved(listed); setValue(listed); }, [listed]);
+  async function onSave() {
+    setBusy(true);
+    setNote(null);
+    try {
+      const result = await save({ agentId: agent.id, tools: value });
+      const now = (result?.tools ?? []).join(', ');
+      setSaved(now);
+      setValue(now);
+      setNote({ ok: true, text: result?.tools?.length ? 'Saved.' : 'Saved: every tool.' });
+    } catch (err) {
+      setNote({ ok: false, text: message(err) });
+    } finally {
+      setBusy(false);
+    }
+  }
+  return h('div', { className: 'space-y-1' },
+    h('p', { className: 'text-sm' }, agent.title && agent.title !== agent.name ? `${agent.name}, ${agent.title}` : agent.name),
+    h('div', { className: 'flex items-center gap-2' },
+      h('input', { className: INPUT, value, spellCheck: false, placeholder: 'Every tool', onChange: (e) => setValue(e.target.value) }),
+      h('button', { type: 'button', className: BUTTON, disabled: busy || value === saved, onClick: onSave }, busy ? 'Saving…' : 'Save')),
+    note ? h('p', { className: note.ok ? 'text-xs text-muted-foreground' : 'text-xs text-destructive' }, note.text) : null);
+}
+
+/** Settings > Org folder > Tools: each Claude agent's tool list in Claude Desktop. */
+function ToolsSection() {
+  const { data, error } = usePluginData('agent-tools', {});
+  const save = usePluginAction('set-agent-tools');
+  if (error) return h('p', { className: 'text-xs text-destructive' }, `Tools are unavailable (${message(error)}).`);
+  const agents = data?.agents ?? [];
+  return h('section', { className: 'space-y-3' },
+    h('h3', { className: 'text-sm font-medium' }, 'Tools in Claude Desktop'),
+    h('p', { className: 'text-xs text-muted-foreground' },
+      `Each agent's conversation loads only the tools listed for it, and every model call carries their descriptions: a short list costs fewer tokens on every call. Name a tool (Read, WebFetch) or a whole MCP server (mcp__Claude_Browser), separated by commas; leave it empty for every tool. ${(data?.always ?? ['Bash', 'SendMessage']).join(' and ')} always stay, for Paperclip calls and hand-offs. A change applies when the agent's conversation next starts in Claude Desktop.`),
+    agents.length ? agents.map((agent) => h(ToolsRow, { key: agent.id, agent, save })) : h('p', { className: 'text-xs text-muted-foreground' }, 'This org has no Claude agents yet.'));
+}
+
 /** Settings > Org folder: this org's folder, and where new orgs' folders go. */
 export function OrgFolderSettings() {
   const { data, loading, error, refresh } = usePluginData('org-folder', {});
@@ -87,7 +130,8 @@ export function OrgFolderSettings() {
       busy: busy === 'parent',
       onSave: () => run('parent', () => setNewOrgParent({ path: parentPath }), 'Saved for the next org you create.'),
     }),
-    note ? h('p', { className: note.ok ? 'text-sm text-muted-foreground' : 'text-sm text-destructive' }, note.text) : null);
+    note ? h('p', { className: note.ok ? 'text-sm text-muted-foreground' : 'text-sm text-destructive' }, note.text) : null,
+    h(ToolsSection));
 }
 
 async function getJson(url) {

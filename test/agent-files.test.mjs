@@ -28,6 +28,16 @@ test("an agent file: its Paperclip model, effort, Skip permissions and id up top
   assert.match(body, /You run the till\.\n$/);
   assert.doesNotMatch(agentMarkdown({ agent: { ...cashier, adapterConfig: {} }, slug: 'cashier', org: 'X', instructions: '' }), /^(model|effort):/m, 'nothing Paperclip does not set');
   assert.match(agentMarkdown({ agent: { ...cashier, adapterConfig: { dangerouslySkipPermissions: false } }, slug: 'cashier', org: 'X', instructions: '' }), /^paperclip-skip-permissions: false$/m, 'Skip permissions turned off in Paperclip');
+  assert.doesNotMatch(md, /^tools:/m, 'no tool list in Paperclip: every tool');
+});
+
+test("an agent's tool list from Paperclip goes into its file, always with Bash and SendMessage, and nothing but tool names", () => {
+  const withTools = (desktopTools) => agentMarkdown({ agent: { ...cashier, adapterConfig: { ...cashier.adapterConfig, desktopTools } }, slug: 'cashier', org: 'X', instructions: '' });
+  assert.match(withTools(['Read', 'Grep', 'mcp__Claude_Browser']), /^tools: Bash, SendMessage, Read, Grep, mcp__Claude_Browser$/m);
+  assert.match(withTools('Read, Write\nBash'), /^tools: Bash, SendMessage, Read, Write$/m, 'a comma or line separated list, each tool once');
+  assert.match(withTools(['Read', 'evil: yes\nmodel: x', '  ', 'Write']), /^tools: Bash, SendMessage, Read, Write$/m, 'anything that is not a tool name is dropped');
+  assert.doesNotMatch(withTools([]), /^tools:/m);
+  assert.doesNotMatch(withTools(['not a tool!']), /^tools:/m, 'nothing usable listed: every tool');
 });
 
 test('agent files are written once per change, never over someone else\'s file, and follow a rename', async () => {

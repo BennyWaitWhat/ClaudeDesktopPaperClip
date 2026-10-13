@@ -99,7 +99,7 @@ export function teamRoster({ org, team, slugs, conversations }) {
     '|---|---|---|---|---|',
     ...rows,
     '',
-    "To hand work to one of them: create the card in backlog, assigned to them, then send their Desktop conversation a message that names the card (Claude Desktop's send_message, to the conversation above).",
+    'To hand work to one of them: create the card in backlog, assigned to them, then send their Desktop conversation a message that names the card (SendMessage, to the conversation above).',
     '',
   ].join('\n');
 }

@@ -1,7 +1,7 @@
 // An org's Claude agents as Claude Code sees them in the org folder (the Desktop-native team, PAPERCLIP-WORKFLOWS.md):
 // - .claude/agents/<agent>.md for each one: a short note on working from Claude Desktop, then its Paperclip
-//   instructions, as the agent's system prompt (loaded once per conversation, not resent every turn), with the model
-//   and effort Paperclip sets for it;
+//   instructions, as the agent's system prompt (loaded once per conversation, not resent every turn), with the model,
+//   effort and tools Paperclip sets for it (the tools are what every model call carries most of, grill Q24);
 // - .claude/skills/<skill>: the Paperclip skills the org's agents are set to have.
 // A file of an agent's name that belongs to someone else (yours, or another agent's) is never overwritten.
 import crypto from 'node:crypto';
@@ -27,7 +27,7 @@ You are ${name}, an agent in the Paperclip org ${org}. You live in one Claude De
 - Every turn you take is recorded as a Paperclip run, and $PAPERCLIP_RUN_ID always holds the current one. Make Paperclip API calls from the Bash tool (it has your Paperclip environment; PowerShell does not), with "Authorization: Bearer $PAPERCLIP_API_KEY" and "X-Paperclip-Run-Id: $PAPERCLIP_RUN_ID" (double quotes, so the shell fills them in). You don't run in Paperclip heartbeats: skip what your skills say about heartbeats and inbox polling.
 - Work goes on cards, so Paperclip shows what the team is doing. When the board or a teammate asks for anything to be done, recorded, tracked or followed up, put it on a card before you start: continue your card for it, or make one with node "${forward(cardTool)}" --new "<short title>" --body "<what was asked>" (assigned to you and in progress; the rest of the turn records on it). Your drafts, results and questions for the board go on the card as comments; a card waiting on the board's answer is left blocked. Only chat and quick answers need no card.
 - A run can comment on and update its own card freely, and up to 20 other cards. A turn whose message names a card already runs on that card. To work on a different card, first leave the current one done, in_review, blocked, or in backlog, then run: node "${forward(cardTool)}" <CARD> (it ends the run so far and opens one on that card).
-- Your team, and each member's Desktop conversation, are in .claude/paperclip-team.md. Handing work to one of them: create the card for them in backlog, assigned to them, then send their Desktop conversation a message that names the card (Claude Desktop's send_message). Never leave a card waiting in todo: Paperclip treats todo as work it should start.
+- Your team, and each member's Desktop conversation, are in .claude/paperclip-team.md. Handing work to one of them: create the card for them in backlog, assigned to them, then send their Desktop conversation a message that names the card (SendMessage, to their conversation's local_ id in that file). Never leave a card waiting in todo: Paperclip treats todo as work it should start.
 - End every turn with each card you touched done, in_review (with a reviewer), blocked (with a blocker or a question for the board), or back in backlog; never todo or in_progress.
 - A turn may open with what changed in Paperclip since your last one (cards given to you, comments, answers): handle those first.
 - Your agent folder is $AGENT_HOME: relative file references in your instructions resolve there.`;
@@ -38,19 +38,35 @@ const yaml = (value) => JSON.stringify(String(value));
 /** Paperclip's "Skip permissions" switch for a Claude agent (on unless turned off, as in Paperclip's own Claude type). */
 export const skipsPermissions = (agent) => agent?.adapterConfig?.dangerouslySkipPermissions !== false;
 
+// A tool list always keeps these: Paperclip calls and the card tool go through Bash, hand-offs through SendMessage.
+export const ALWAYS_TOOLS = ['Bash', 'SendMessage'];
+const TOOL_NAME = /^[A-Za-z][\w.-]{0,127}$/;
+
 /**
- * The agent file's text: frontmatter (name, description, model, effort, Skip permissions, Paperclip id), then the
- * system prompt.
+ * The tools an agent may use in its Desktop conversation, as Paperclip lists them (adapterConfig.desktopTools, set on
+ * the plugin's settings page): a tool name, or a whole MCP server as mcp__<server>. None listed means every tool.
+ */
+export function desktopTools(agent) {
+  const raw = agent?.adapterConfig?.desktopTools;
+  const listed = (Array.isArray(raw) ? raw : String(raw ?? '').split(/[,\n]/)).map((t) => String(t).trim()).filter((t) => TOOL_NAME.test(t));
+  return listed.length ? [...new Set([...ALWAYS_TOOLS, ...listed])] : [];
+}
+
+/**
+ * The agent file's text: frontmatter (name, description, model, effort, tools, Skip permissions, Paperclip id), then
+ * the system prompt.
  */
 export function agentMarkdown({ agent, slug, org, instructions }) {
   const name = String(agent?.name ?? 'Agent').replace(/[\r\n]+/g, ' ').trim() || 'Agent';
   const role = [agent?.title, agent?.role && agent.role !== 'general' ? agent.role : null].filter(Boolean)[0];
   const config = agent?.adapterConfig ?? {};
+  const tools = desktopTools(agent);
   const front = [
     `name: ${slug}`,
     `description: ${yaml(`Paperclip agent: ${name}${role ? `, ${role}` : ''}.`)}`,
     typeof config.model === 'string' && config.model.trim() ? `model: ${config.model.trim()}` : null,
     typeof config.effort === 'string' && config.effort.trim() ? `effort: ${config.effort.trim()}` : null,
+    tools.length ? `tools: ${tools.join(', ')}` : null,
     `paperclip-skip-permissions: ${skipsPermissions(agent)}`,
     `paperclip-agent-id: ${agent.id}`,
   ].filter(Boolean);

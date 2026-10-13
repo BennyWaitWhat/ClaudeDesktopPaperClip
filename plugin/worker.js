@@ -6,8 +6,10 @@ import path from 'node:path';
 import { definePlugin, runWorker } from '@paperclipai/plugin-sdk';
 import { desktopClaudeCode, handOffWhenQuiet, openInDesktop, windowsUserEnv } from '../desktop.mjs';
 import { desktopOrgs, isDesktopOrg, pluginKeeps, readOrg, REHEARSAL_ORG, switchOrg } from '../desktop-orgs.mjs';
+import { ALWAYS_TOOLS, desktopTools } from '../agent-files.mjs';
 import { keepSignInFresh } from '../claude-sign-in.mjs';
-import { markHandedOff, noteNewCard, paperclipApi, paperclipInstance, syncOrg } from '../org-sync.mjs';
+import { claudeTeam, markHandedOff, noteNewCard, paperclipApi, paperclipInstance, syncOrg } from '../org-sync.mjs';
+import { paperclipCall } from '../paperclip-access.mjs';
 import { applyUiFixes } from '../paperclip-ui-fixes.mjs';
 import { desktopFolder, ensureFolder, ensureOrgFolder, orgFolderName } from './folders.mjs';
 
@@ -205,6 +207,26 @@ const plugin = definePlugin({
     ctx.actions.register('set-desktop', async ({ companyId, on }) => {
       const org = await setDesktop(ctx, companyId, Boolean(on));
       return { desktop: org.desktop, folder: org.folder };
+    });
+
+    // Settings > Org folder > Tools: each Claude agent's tool list in Claude Desktop (adapterConfig.desktopTools), the
+    // biggest part of what every model call carries (grill Q24). Bash and SendMessage always stay.
+    const ownTools = (agent) => desktopTools(agent).filter((t) => !ALWAYS_TOOLS.includes(t));
+    ctx.data.register('agent-tools', async ({ companyId }) => {
+      if (!companyId) return { always: ALWAYS_TOOLS, agents: [] };
+      const listed = await paperclipCall(api(), `/api/companies/${companyId}/agents`);
+      if (listed.status !== 200 || !Array.isArray(listed.json)) throw new Error(`Paperclip answered ${listed.status}`);
+      return { always: ALWAYS_TOOLS, agents: claudeTeam(listed.json).team.map((a) => ({ id: a.id, name: a.name, title: a.title ?? null, tools: ownTools(a) })) };
+    });
+    ctx.actions.register('set-agent-tools', async ({ companyId, agentId, tools }) => {
+      const agent = await paperclipCall(api(), `/api/agents/${encodeURIComponent(String(agentId))}`);
+      if (agent.status !== 200 || agent.json?.companyId !== companyId) throw new Error('No such agent in this org');
+      const list = ownTools({ adapterConfig: { desktopTools: tools } });
+      // Paperclip takes about 6 seconds to save an agent; its call to this action gives up at 30.
+      const saved = await paperclipCall(api(), `/api/agents/${agent.json.id}`, { method: 'PATCH', body: { adapterConfig: { desktopTools: list } }, timeoutMs: 20_000 });
+      if (saved.status < 200 || saved.status >= 300) throw new Error(saved.status ? `Paperclip answered ${saved.status}` : 'Paperclip did not answer in time');
+      if (isDesktopOrg(options.instance, companyId)) syncSoon(companyId, 'tools changed');
+      return { tools: list };
     });
 
     // The card button: the Desktop conversation of each of the org's agents.

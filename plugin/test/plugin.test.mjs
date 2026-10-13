@@ -3,6 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { createTestHarness } from '@paperclipai/plugin-sdk/testing';
@@ -134,6 +135,43 @@ test('settings page data, and moving an org to another folder', async () => {
   assert.ok(fs.existsSync(moved), 'a folder you type is made when missing');
   await assert.rejects(h.performAction('set-org-folder', { companyId: 'c1', path: 'not/full' }), /full path/);
   fs.rmSync(parent, { recursive: true, force: true });
+});
+
+test("settings page tools: each Claude agent's list in Claude Desktop, saved into its Paperclip config", async () => {
+  const patches = [];
+  const agents = [
+    { id: 'a2', companyId: 'c1', name: 'Cashier', title: 'Runs the till', adapterType: 'claude_local', status: 'idle', createdAt: '2', reportsTo: 'a1', adapterConfig: { desktopTools: ['Read'] } },
+    { id: 'a1', companyId: 'c1', name: 'Chief of Staff', adapterType: 'claude_local', status: 'idle', createdAt: '1', reportsTo: null, adapterConfig: {} },
+    { id: 'a3', companyId: 'c1', name: 'Verifier', adapterType: 'codex_local', status: 'idle', createdAt: '3', reportsTo: 'a1', adapterConfig: {} },
+    { id: 'z9', companyId: 'c2', name: 'Elsewhere', adapterType: 'claude_local', status: 'idle', createdAt: '4', adapterConfig: {} },
+  ];
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      const send = (status, json) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(json)); };
+      if (req.method === 'GET' && req.url === '/api/companies/c1/agents') return send(200, agents.filter((a) => a.companyId === 'c1'));
+      const one = agents.find((a) => req.url === `/api/agents/${a.id}`);
+      if (!one) return send(404, { error: 'not found' });
+      if (req.method === 'PATCH') { patches.push(JSON.parse(body)); return send(200, one); }
+      return send(200, one);
+    });
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  try {
+    const { h } = await harness();
+    options.api = `http://127.0.0.1:${server.address().port}`;
+    assert.deepEqual(await h.getData('agent-tools', { companyId: 'c1' }), {
+      always: ['Bash', 'SendMessage'],
+      agents: [{ id: 'a1', name: 'Chief of Staff', title: null, tools: [] }, { id: 'a2', name: 'Cashier', title: 'Runs the till', tools: ['Read'] }],
+    }, 'Claude agents only, Chief of Staff first; the tools that always stay are not repeated');
+    assert.deepEqual(await h.performAction('set-agent-tools', { companyId: 'c1', agentId: 'a2', tools: 'Read, Grep\nnot a tool!, Bash' }), { tools: ['Read', 'Grep'] });
+    assert.deepEqual(patches, [{ adapterConfig: { desktopTools: ['Read', 'Grep'] } }], 'only tool names reach Paperclip');
+    await assert.rejects(h.performAction('set-agent-tools', { companyId: 'c1', agentId: 'z9', tools: 'Read' }), /No such agent in this org/);
+    assert.equal(patches.length, 1, "another org's agent is never changed");
+  } finally {
+    server.close();
+  }
 });
 
 test("the card button finds each agent's Desktop conversation, and refuses anything but a real session id", async () => {
