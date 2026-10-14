@@ -165,3 +165,7 @@ remove it. Settings > Plugins: disable or remove Claude Desktop (org folders sta
 - Paperclip's own wakes wait for the agent's next Desktop turn: nothing starts on its own.
 - Command-line Claude must be signed in to the same Claude organization as Claude Desktop (`claude auth
   status`).
+- Desktop's sidebar heads a folder only when the folder is one of its saved folders
+  (`%APPDATA%\Claude\ccd-session-presets.json`, seeded once from the folders open on 2026-10-14). An org folder
+  first used after that lists its conversations under "Default", by repo name. File them in a sidebar section of
+  their own (Career Catchers has one); a later hire's conversation is filed there the same way.
