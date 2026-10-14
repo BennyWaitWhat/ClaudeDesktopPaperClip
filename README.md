@@ -74,11 +74,12 @@ another place), and moves the org to Claude Desktop. From then on the plugin kee
 Paperclip (`org-sync.mjs`), at once when Paperclip's live activity feed shows an agent hired, changed or removed
 (a hire reaches it in well under a second), and once a minute besides:
 
-- each Claude agent's file, the skills, the settings (the hooks above, and the Chief of Staff as the folder's
-  default agent, so a new chat there is the Chief of Staff), and `.claude/paperclip-team.md`: the team and each
-  member's Desktop conversation, which agents use to hand each other work;
+- each Claude agent's file, the skills, the settings (the hooks above, which make a new chat there the Chief of
+  Staff; no folder default agent, since Claude Code gives every conversation it resumes the default agent's tools),
+  and `.claude/paperclip-team.md`: the team and each member's Desktop conversation, which agents use to hand each
+  other work;
 - each agent's one conversation, made with a one-line hello as that agent (one turn, no tools: setup, never work;
-  its first reply also keeps the conversation its own agent), then handed to Claude Desktop's sidebar at a pause
+  the conversation keeps that agent and its tools from then on), then handed to Claude Desktop's sidebar at a pause
   in your typing. Desktop switches to a conversation it is handed, once per new agent.
 
 Older orgs stay as they are until you move them: Settings > Org folder > **Move to Claude Desktop**. Until then

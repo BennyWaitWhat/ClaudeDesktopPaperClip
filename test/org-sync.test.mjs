@@ -95,8 +95,8 @@ test("an org's folder and Desktop conversations follow Paperclip: agent files, s
     assert.deepEqual(fs.readdirSync(path.join(folder, '.claude', 'agents')).sort(), ['cashier.md', 'chief-of-staff.md', 'mine.md'], "a former agent's file goes; yours stays");
     assert.match(fs.readFileSync(path.join(folder, '.claude', 'agents', 'cashier.md'), 'utf8'), /model: claude-haiku-5-5[\s\S]*You are Cashier\./);
     const settings = JSON.parse(fs.readFileSync(path.join(folder, '.claude', 'settings.json'), 'utf8'));
-    assert.equal(settings.agent, 'chief-of-staff', 'a new chat in the folder is the Chief of Staff');
-    assert.match(settings.hooks.SessionStart[0].hooks[0].command, /--chief cos/);
+    assert.equal(settings.agent, undefined, "no folder default agent, which would give every resumed conversation its tools");
+    assert.match(settings.hooks.SessionStart[0].hooks[0].command, /--chief cos/, 'a new chat in the folder is the Chief of Staff, through the hook');
     const roster = fs.readFileSync(path.join(folder, TEAM_FILE), 'utf8');
     assert.match(roster, /\| Chief of Staff \| CEO \| the board \| chief-of-staff \| local_chief-of-staff/);
     assert.match(roster, /\| Cashier \| general \| Chief of Staff \| cashier \| local_cashier/);

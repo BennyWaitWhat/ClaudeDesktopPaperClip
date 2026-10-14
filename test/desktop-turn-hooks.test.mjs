@@ -7,7 +7,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { doneFile, runIdFile, seenFile, sessionFile, turnFile, turnsDir } from '../desktop-turn.mjs';
-import { ensureOrgSettings } from '../org-folder.mjs';
+import { chiefOf, ensureGitExclude, ensureOrgSettings, hasSessionHook } from '../org-folder.mjs';
 import { addToInbox, inboxFile } from '../paperclip-wakes.mjs';
 
 const HOOK = fileURLToPath(new URL('../hooks/desktop-turn.mjs', import.meta.url));
@@ -338,14 +338,15 @@ test('paperclip-card --new makes the card, assigned to the agent, and the rest o
   }
 });
 
-test('an org folder gets all three hooks, keeps its own, and is left alone when it is a git repo', async () => {
+test('an org folder gets all three hooks and keeps its own', async () => {
   const folder = tmp('org');
   fs.mkdirSync(path.join(folder, '.claude'));
-  fs.writeFileSync(path.join(folder, '.claude', 'settings.json'), JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'echo mine' }] }] }, model: 'haiku' }));
-  const options = { node: 'node', apiUrl: 'http://127.0.0.1:3100', instanceRoot: 'C:/instance', chiefId: '11111111-2222-3333-4444-555555555555' };
+  fs.writeFileSync(path.join(folder, '.claude', 'settings.json'), JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'echo mine' }] }] }, model: 'haiku', agent: 'mine' }));
+  const options = { node: 'node', apiUrl: 'http://127.0.0.1:3100', instanceRoot: 'C:/instance', chiefId: '11111111-2222-3333-4444-555555555555', teamAgents: ['chief-of-staff'] };
   assert.equal((await ensureOrgSettings(folder, options)).changed, true);
   const settings = JSON.parse(fs.readFileSync(path.join(folder, '.claude', 'settings.json'), 'utf8'));
   assert.equal(settings.model, 'haiku');
+  assert.equal(settings.agent, 'mine', "a default agent that is not one of the org's stays");
   assert.match(settings.hooks.SessionStart.at(-1).hooks[0].command, /desktop-session\.mjs.*--chief 11111111/);
   assert.match(settings.hooks.UserPromptSubmit.at(-1).hooks[0].command, /desktop-turn\.mjs/);
   assert.match(settings.hooks.Stop.at(-1).hooks[0].command, /desktop-turn\.mjs/);
@@ -354,7 +355,40 @@ test('an org folder gets all three hooks, keeps its own, and is left alone when 
   assert.equal(settings.hooks.Stop[0].hooks[0].command, 'echo mine', 'its own Stop hook stays');
   assert.equal((await ensureOrgSettings(folder, { ...options, chiefId: null })).changed, false, 'again: nothing to change, the Chief of Staff kept');
 
+});
+
+test("in a git repo (a project's own clone) the hooks go in settings.local.json and the plugin's files stay out of git", async () => {
   const repo = tmp('repo');
-  fs.mkdirSync(path.join(repo, '.git'));
-  assert.equal((await ensureOrgSettings(repo, options)).reason, 'a git repo');
+  fs.mkdirSync(path.join(repo, '.git', 'info'), { recursive: true });
+  fs.mkdirSync(path.join(repo, '.claude'));
+  const tracked = JSON.stringify({ permissions: { allow: ['Bash(node *)'] } });
+  fs.writeFileSync(path.join(repo, '.claude', 'settings.json'), tracked);
+  fs.writeFileSync(path.join(repo, '.git', 'info', 'exclude'), '# git ls-files --others --exclude-from=.git/info/exclude\n*.log\n');
+  // An older sync made the Chief of Staff the folder's default agent.
+  fs.writeFileSync(path.join(repo, '.claude', 'settings.local.json'), JSON.stringify({ agent: 'chief-of-staff' }));
+  const options = { node: 'node', apiUrl: 'http://127.0.0.1:3100', instanceRoot: 'C:/instance', chiefId: '11111111-2222-3333-4444-555555555555', teamAgents: ['chief-of-staff', 'scout'] };
+
+  const result = await ensureOrgSettings(repo, options);
+  assert.equal(result.file, path.join(repo, '.claude', 'settings.local.json'));
+  assert.equal(result.changed, true);
+  assert.equal(fs.readFileSync(path.join(repo, '.claude', 'settings.json'), 'utf8'), tracked, "the repo's own settings are untouched");
+  const local = JSON.parse(fs.readFileSync(result.file, 'utf8'));
+  assert.equal(local.agent, undefined, "no folder default agent: it would give every resumed conversation the Chief's tools");
+  assert.match(local.hooks.SessionStart[0].hooks[0].command, /desktop-session\.mjs.*--chief 11111111/);
+  assert.equal(await chiefOf(repo), '11111111-2222-3333-4444-555555555555');
+  assert.equal(await hasSessionHook(repo), true);
+  assert.equal((await ensureOrgSettings(repo, { ...options, chiefId: null })).changed, false, 'again: nothing to change');
+
+  const ours = [path.join('.claude', 'agents', 'scout.md'), '.claude/settings.local.json', path.join('.claude', 'skills', 'paperclip')];
+  assert.equal((await ensureGitExclude(repo, ours)).changed, true);
+  const exclude = fs.readFileSync(path.join(repo, '.git', 'info', 'exclude'), 'utf8');
+  assert.match(exclude, /^\*\.log$/m, 'the lines already there stay');
+  assert.match(exclude, /^\/\.claude\/agents\/scout\.md$/m);
+  assert.match(exclude, /^\/\.claude\/skills\/paperclip$/m);
+  assert.equal((await ensureGitExclude(repo, [...ours].reverse())).changed, false, 'same files: left as it is');
+  await ensureGitExclude(repo, ['.claude/settings.local.json']);
+  const after = fs.readFileSync(path.join(repo, '.git', 'info', 'exclude'), 'utf8');
+  assert.doesNotMatch(after, /scout\.md/, 'a file no longer kept leaves the list');
+  assert.equal(after.match(/ClaudeDesktopPaperClip: files/g).length, 1, 'one block, rewritten in place');
+  assert.equal(await ensureGitExclude(tmp('plain'), ours), null, 'outside a repo: nothing to do');
 });

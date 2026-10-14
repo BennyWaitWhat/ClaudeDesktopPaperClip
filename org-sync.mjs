@@ -1,11 +1,13 @@
 // An org in Claude Desktop, kept in step with Paperclip by the plugin (grill Q2, Q6, Q7, Q14, Q20). The moment an
 // org switched to Claude Desktop has a Claude agent, its folder gets:
 //   - .claude/agents/<agent>.md for each of its Claude agents, and .claude/skills (agent-files.mjs);
-//   - .claude/settings.json with the org's hooks (org-folder.mjs) and the Chief of Staff as the folder's default
-//     agent, so a new chat in the folder is the Chief of Staff;
+//   - .claude/settings.json with the org's hooks (org-folder.mjs), which make a plain new chat in the folder the
+//     Chief of Staff; no folder default agent, since Claude Code would give every conversation it resumes there that
+//     agent's tools (in a git repo, such as a project's own clone, .claude/settings.local.json, with the plugin's
+//     files listed in .git/info/exclude);
 //   - .claude/paperclip-team.md: the team and each member's Desktop conversation, for hand-offs;
 // and each agent gets its one conversation: a hello turn as that agent (one turn, no tools: setup, never work;
-// its first reply is also what keeps the conversation its own agent rather than the folder's default), which the
+// the conversation keeps that agent, with its own tools, from then on), which the
 // plugin then hands to Claude Desktop's sidebar at a pause in your typing. Desktop takes the conversation's model and
 // permission mode from that hello (never bypass: it makes that "accept edits"), so the hello runs in the mode the
 // agent's Paperclip "Skip permissions" switch asks for; the org folder's PreToolUse hook does the rest.
@@ -19,7 +21,7 @@ import { readInstructions, removeOtherAgentFiles, skipsPermissions, syncSkills, 
 import { windowsUserEnv } from './desktop.mjs';
 import { readOrg, updateOrg } from './desktop-orgs.mjs';
 import { HELLO_ENV } from './desktop-turn.mjs';
-import { ensureOrgSettings } from './org-folder.mjs';
+import { ensureGitExclude, ensureOrgSettings, isGitRepo } from './org-folder.mjs';
 import { paperclipCall } from './paperclip-access.mjs';
 import { addToInbox } from './paperclip-wakes.mjs';
 
@@ -133,8 +135,14 @@ export async function syncOrg({ api, instance, companyId, node = process.execPat
   wrote.push(...(await removeOtherAgentFiles(folder, team.map((a) => a.id))).map((f) => `-${path.relative(folder, f)}`));
   const skills = await syncSkills(folder, team.flatMap((a) => a.adapterConfig?.paperclipSkillSync?.desiredSkills ?? []));
   wrote.push(...skills.copied.map((s) => path.join('.claude', 'skills', s)));
-  const settings = await ensureOrgSettings(folder, { node, apiUrl: api, instanceRoot: instance, chiefId: chief.id, defaultAgent: slugs.get(chief.id) });
+  const settings = await ensureOrgSettings(folder, { node, apiUrl: api, instanceRoot: instance, chiefId: chief.id, teamAgents: [...slugs.values()] });
   if (settings.changed) wrote.push(path.relative(folder, settings.file));
+  if (isGitRepo(folder)) {
+    // A project's own clone (grill Q23): what the plugin keeps here stays out of the repo's history.
+    const ours = [...[...slugs.values()].map((s) => path.join('.claude', 'agents', `${s}.md`)), ...skills.kept.map((s) => path.join('.claude', 'skills', s)), TEAM_FILE, path.relative(folder, settings.file)];
+    const exclude = await ensureGitExclude(folder, ours);
+    if (exclude?.changed) wrote.push(path.join('.git', 'info', 'exclude'));
+  }
 
   // Each agent's conversation, the Chief of Staff's first. A failed hello is tried again after a few minutes.
   const made = [];

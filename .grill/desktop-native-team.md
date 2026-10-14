@@ -159,6 +159,7 @@ lives and works, and where Benny talks to them.
 - **Handing on works.** A turn started by another session's message can message a third session. Only starting new sessions (`start_session`, switched off on this account by Anthropic's servers) and moving to the cloud are reserved for the user's own typed words.
 - **The presence check near `send_message` in Desktop's code** belongs to remote (SSH) host wake-ups, not to local messages.
 - **One folder default agent per folder.** Claude Code prefers a folder's default agent over the agent a conversation started with, until that conversation's first reply; after that the conversation keeps its own agent.
+- **But a folder default agent sets the tools of every conversation resumed there** (checked 2026-10-14, Claude Code 2.1.295, Desktop 2.37337.1). A resumed conversation keeps its own agent's prompt, yet takes its tool list from the folder's default agent. Desktop resumes conversations with `--resume` and no `--agent`: its session records carry no agent. With the Chief of Staff as the default, every agent ran with every tool, about 63k tokens a call, not its own list (about 33k in a Career Ops clone). So org folders have no default agent. A plain new chat there is still the Chief of Staff, through the SessionStart hook.
 - **Creating a conversation costs nothing** when its first message is held by a hook: the conversation is saved with its agent and name, and no model call happens.
 
 ## Paperclip as it stands (read-only snapshot, 2026-10-10)

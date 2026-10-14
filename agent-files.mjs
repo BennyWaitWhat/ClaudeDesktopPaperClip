@@ -136,22 +136,32 @@ export function bundledSkillDir(key, server = findPaperclipPackage('server')) {
   return null;
 }
 
+// Left in each skill folder the plugin copies, so a git repo's own skill of the same name is never replaced.
+const SKILL_MARK = '.claude-desktop-paperclip';
+
 /**
  * Copy the skills the org's agents are set to have into `folder`/.claude/skills (Paperclip's bundled ones; others
- * are reported, not guessed). Returns { copied: [names], skipped: [keys] }.
+ * are reported, not guessed). In a git repo, a skill folder the plugin did not copy is the repo's own and is left
+ * alone (reported as skipped). Returns { copied: [names], kept: [names in place], skipped: [keys] }.
  */
 export async function syncSkills(folder, keys, { resolve = bundledSkillDir } = {}) {
   const copied = [];
+  const kept = [];
   const skipped = [];
+  const repo = fs.existsSync(path.join(folder, '.git'));
   for (const key of [...new Set(keys)]) {
     const from = resolve(key);
     if (!from) { skipped.push(key); continue; }
-    const to = path.join(folder, '.claude', 'skills', path.basename(from));
+    const name = path.basename(from);
+    const to = path.join(folder, '.claude', 'skills', name);
+    if (repo && fs.existsSync(to) && !fs.existsSync(path.join(to, SKILL_MARK))) { skipped.push(key); continue; }
+    kept.push(name);
     const same = await Promise.all([from, to].map((d) => fsp.readFile(path.join(d, 'SKILL.md'), 'utf8').catch(() => null)));
     if (same[1] !== null && same[0] === same[1]) continue; // already there, unchanged
     await fsp.rm(to, { recursive: true, force: true });
     await fsp.cp(from, to, { recursive: true });
-    copied.push(path.basename(from));
+    await fsp.writeFile(path.join(to, SKILL_MARK), 'Copied by ClaudeDesktopPaperClip from Paperclip; replaced when Paperclip changes it.\n');
+    copied.push(name);
   }
-  return { copied, skipped };
+  return { copied, kept, skipped };
 }

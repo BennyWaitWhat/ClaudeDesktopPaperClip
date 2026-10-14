@@ -77,11 +77,24 @@ test("the org folder gets the skills its agents have, copied once per change; sk
   const resolve = (key) => (key === 'paperclipai/paperclip/paperclip' ? path.join(source, 'paperclip') : null);
   const folder = tmp('org');
 
-  assert.deepEqual(await syncSkills(folder, ['paperclipai/paperclip/paperclip', 'someone/else/skill', 'paperclipai/paperclip/paperclip'], { resolve }), { copied: ['paperclip'], skipped: ['someone/else/skill'] });
+  assert.deepEqual(await syncSkills(folder, ['paperclipai/paperclip/paperclip', 'someone/else/skill', 'paperclipai/paperclip/paperclip'], { resolve }), { copied: ['paperclip'], kept: ['paperclip'], skipped: ['someone/else/skill'] });
   assert.equal(fs.readFileSync(path.join(folder, '.claude', 'skills', 'paperclip', 'references', 'api.md'), 'utf8'), 'routes');
   assert.deepEqual((await syncSkills(folder, ['paperclipai/paperclip/paperclip'], { resolve })).copied, [], 'unchanged: left alone');
   fs.writeFileSync(path.join(source, 'paperclip', 'SKILL.md'), '---\nname: paperclip\n---\nv2');
   assert.deepEqual((await syncSkills(folder, ['paperclipai/paperclip/paperclip'], { resolve })).copied, ['paperclip']);
+
+  // In a git repo, a skill folder of the same name that the plugin did not copy is the repo's own: left alone.
+  const repo = tmp('repo');
+  fs.mkdirSync(path.join(repo, '.git'));
+  fs.mkdirSync(path.join(repo, '.claude', 'skills', 'paperclip'), { recursive: true });
+  fs.writeFileSync(path.join(repo, '.claude', 'skills', 'paperclip', 'SKILL.md'), 'the repo\'s own');
+  assert.deepEqual(await syncSkills(repo, ['paperclipai/paperclip/paperclip'], { resolve }), { copied: [], kept: [], skipped: ['paperclipai/paperclip/paperclip'] });
+  assert.equal(fs.readFileSync(path.join(repo, '.claude', 'skills', 'paperclip', 'SKILL.md'), 'utf8'), 'the repo\'s own');
+  const clone = tmp('clone');
+  fs.mkdirSync(path.join(clone, '.git'));
+  assert.deepEqual((await syncSkills(clone, ['paperclipai/paperclip/paperclip'], { resolve })).copied, ['paperclip'], 'none there yet: copied');
+  fs.writeFileSync(path.join(source, 'paperclip', 'SKILL.md'), '---\nname: paperclip\n---\nv3');
+  assert.deepEqual((await syncSkills(clone, ['paperclipai/paperclip/paperclip'], { resolve })).copied, ['paperclip'], 'its own copy is updated');
 });
 
 test("Paperclip's bundled skills are found in the installed Paperclip", () => {

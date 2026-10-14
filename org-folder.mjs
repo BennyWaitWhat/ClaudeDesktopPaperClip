@@ -1,4 +1,4 @@
-// An org folder as Claude Code sees it, through its own .claude/settings.json:
+// An org folder as Claude Code sees it, through its own .claude settings:
 // - SessionStart (hooks/desktop-session.mjs): every conversation there that runs as one of the org's agents gets
 //   that agent's Paperclip access, and a plain new conversation is the org's Chief of Staff;
 // - UserPromptSubmit and Stop (hooks/desktop-turn.mjs): each turn such a conversation takes is a Paperclip run;
@@ -8,6 +8,11 @@
 // The folder's default agent is the Chief of Staff (grill Q14), so a new chat there is the Chief of Staff. Claude
 // Code prefers a folder default over the agent a conversation started with until that conversation's first reply,
 // so every agent's conversation is made with one hello reply (org-sync.mjs).
+//
+// An org folder can be a git repo: a project's own copy, such as Career Catchers' clone of Career Ops (grill Q23).
+// There the hooks and the default agent go in .claude/settings.local.json, which stays on this computer, and the
+// files the plugin writes are kept out of git through .git/info/exclude, so the repo's own settings and history
+// never carry them.
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
@@ -34,19 +39,26 @@ export function hookCommand(script, { node = process.execPath, apiUrl, instanceR
 }
 export const sessionHookCommand = (options) => hookCommand(SESSION_HOOK, options);
 
-async function readSettings(folder) {
-  const file = path.join(folder, '.claude', 'settings.json');
+/** True when the folder is a git repo's top (a .git folder, or the .git file of a worktree). */
+export const isGitRepo = (folder) => fs.existsSync(path.join(folder, '.git'));
+
+/** The settings file our hooks go in: settings.local.json in a git repo, settings.json elsewhere. */
+export const orgSettingsFile = (folder) => path.join(folder, '.claude', isGitRepo(folder) ? 'settings.local.json' : 'settings.json');
+
+async function readSettings(file) {
   const raw = await fsp.readFile(file, 'utf8').catch(() => null);
-  if (raw === null || !raw.trim()) return { file, settings: {} };
-  try { return { file, settings: JSON.parse(raw) }; } catch { return { file, settings: null }; }
+  if (raw === null || !raw.trim()) return {};
+  try { return JSON.parse(raw); } catch { return null; }
 }
 
 const ourCommands = (settings) => [...new Set(OURS.map((o) => o.event))].flatMap((event) => (settings?.hooks?.[event] ?? []).flatMap((g) => g?.hooks ?? []).filter(isOurHook).map((h) => h.command));
+// Both settings files: a folder may have had our hooks in settings.json before it became a repo.
+const allOurCommands = async (folder) => (await Promise.all(['settings.local.json', 'settings.json']
+  .map((name) => readSettings(path.join(folder, '.claude', name))))).flatMap(ourCommands);
 
 /** The org's Chief of Staff as the folder's hooks name it, or null. */
 export async function chiefOf(folder) {
-  const { settings } = await readSettings(folder);
-  for (const command of ourCommands(settings)) {
+  for (const command of await allOurCommands(folder)) {
     const id = command.match(/--chief\s+(\S+)/)?.[1];
     if (UUID.test(id ?? '')) return id;
   }
@@ -55,20 +67,22 @@ export async function chiefOf(folder) {
 
 /** True when the folder's settings run our hooks, so Claude Desktop's conversations there are the org's agents. */
 export async function hasSessionHook(folder) {
-  return ourCommands((await readSettings(folder)).settings).length > 0;
+  return (await allOurCommands(folder)).length > 0;
 }
 
 /**
- * Give a plain folder our hooks (SessionStart, UserPromptSubmit, Stop), replacing older copies of them and keeping the
- * Chief of Staff they name unless `chiefId` gives one, and `defaultAgent` as the folder's default agent when given.
- * The rest of the file stays as it is; a git repo, or a settings file that is not valid JSON, is left alone.
- * Returns { file, changed, reason? }.
+ * Give an org folder our hooks (SessionStart, UserPromptSubmit, Stop, PreToolUse), replacing older copies of them
+ * and keeping the Chief of Staff they name unless `chiefId` gives one. A folder default agent naming one of the
+ * org's agents (`teamAgents`, as older syncs set the Chief of Staff) is removed: Claude Code gives a conversation it
+ * resumes the folder default agent's tools, though the conversation keeps its own prompt, so each agent's tool list
+ * only holds without one (seen 2026-10-14 in Claude Code 2.1.295). A plain new chat in the folder is the Chief of
+ * Staff through the SessionStart hook instead. The rest of the file stays as it is; a settings file that is not valid
+ * JSON is left alone. In a git repo this is settings.local.json (orgSettingsFile). Returns { file, changed, reason? }.
  */
-export async function ensureOrgSettings(folder, { node, apiUrl, instanceRoot, chiefId = null, defaultAgent = null }) {
-  const file = path.join(folder, '.claude', 'settings.json');
-  if (fs.existsSync(path.join(folder, '.git'))) return { file, changed: false, reason: 'a git repo' };
-  const { settings } = await readSettings(folder);
-  if (!settings) return { file, changed: false, reason: 'its settings.json is not valid JSON' };
+export async function ensureOrgSettings(folder, { node, apiUrl, instanceRoot, chiefId = null, teamAgents = [] }) {
+  const file = orgSettingsFile(folder);
+  const settings = await readSettings(file);
+  if (!settings) return { file, changed: false, reason: `its ${path.basename(file)} is not valid JSON` };
   const before = JSON.stringify(settings);
   const chief = chiefId ?? (await chiefOf(folder));
   const hooks = settings.hooks && typeof settings.hooks === 'object' ? { ...settings.hooks } : {};
@@ -81,10 +95,36 @@ export async function ensureOrgSettings(folder, { node, apiUrl, instanceRoot, ch
     hooks[event] = [...others, ...ours];
   }
   settings.hooks = hooks;
-  if (defaultAgent) settings.agent = defaultAgent;
+  if (typeof settings.agent === 'string' && teamAgents.includes(settings.agent)) delete settings.agent;
   if (JSON.stringify(settings) === before) return { file, changed: false };
   await fsp.mkdir(path.dirname(file), { recursive: true });
   await fsp.writeFile(file, `${JSON.stringify(settings, null, 2)}\n`);
+  return { file, changed: true };
+}
+
+const EXCLUDE_START = '# ClaudeDesktopPaperClip: files the plugin keeps in this org folder (rewritten on each sync)';
+const EXCLUDE_END = '# end ClaudeDesktopPaperClip';
+
+/**
+ * In a git repo, keep the plugin's files out of git: one marked block in .git/info/exclude listing them (folder-relative
+ * paths), rewritten when the list changes; the rest of the file stays as it is. Returns { file, changed } or null
+ * outside a repo (or in a worktree, whose .git is a file).
+ */
+export async function ensureGitExclude(folder, paths) {
+  const gitDir = path.join(folder, '.git');
+  if (!fs.existsSync(gitDir) || !fs.statSync(gitDir).isDirectory()) return null;
+  const file = path.join(gitDir, 'info', 'exclude');
+  const raw = await fsp.readFile(file, 'utf8').catch(() => '');
+  const lines = raw.split(/\r?\n/);
+  const start = lines.indexOf(EXCLUDE_START);
+  const end = lines.indexOf(EXCLUDE_END, start);
+  const rest = start >= 0 && end > start ? [...lines.slice(0, start), ...lines.slice(end + 1)] : lines;
+  while (rest.length && rest.at(-1) === '') rest.pop();
+  const entries = [...new Set(paths.map((p) => `/${String(p).replace(/\\/g, '/').replace(/^\/+/, '')}`))].sort();
+  const next = `${[...rest, ...(rest.length ? [''] : []), EXCLUDE_START, ...entries, EXCLUDE_END].join('\n')}\n`;
+  if (next === raw) return { file, changed: false };
+  await fsp.mkdir(path.dirname(file), { recursive: true });
+  await fsp.writeFile(file, next);
   return { file, changed: true };
 }
 

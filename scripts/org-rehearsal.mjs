@@ -9,10 +9,13 @@
 //      Paperclip API with its own key and the turn's run id, all of it recorded as one run on the card;
 //   5. work asked for in Desktop (no card named) becomes a card the Cashier makes itself, recorded as a run on it,
 //      never parked; 6. chat makes no card.
+// The Cashier has a tool list in Paperclip (Read, Grep, Glob), so its agent file carries a tools line. With --repo,
+// the org folder is a clone of that git repo (a project's own copy, grill Q23): the hooks go in settings.local.json,
+// the plugin's files stay out of git, and the Cashier's first real turn reports what one call costs there.
 // Then it removes everything it made (the org is archived, its agents terminated). A few Haiku turns.
-//   node scripts/org-rehearsal.mjs [--keep]      (--keep leaves it all for a look; then:)
+//   node scripts/org-rehearsal.mjs [--keep] [--repo <path>]   (--keep leaves it all for a look; then:)
 //   node scripts/org-rehearsal.mjs --clean <org id>
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -20,12 +23,14 @@ import path from 'node:path';
 import { desktopClaudeCode, windowsUserEnv } from '../desktop.mjs';
 import { orgFile, readOrg, switchOrg } from '../desktop-orgs.mjs';
 import { seenFile, turnsDir } from '../desktop-turn.mjs';
+import { orgSettingsFile } from '../org-folder.mjs';
 import { paperclipApi, paperclipInstance, syncOrg, TEAM_FILE } from '../org-sync.mjs';
 import { keyFile } from '../paperclip-access.mjs';
 import { inboxFile } from '../paperclip-wakes.mjs';
 
 const arg = (name) => { const i = process.argv.indexOf(`--${name}`); return i > 0 ? process.argv[i + 1] : undefined; };
 const KEEP = process.argv.includes('--keep');
+const REPO = arg('repo');
 const INSTANCE = paperclipInstance();
 const API = paperclipApi(INSTANCE);
 const CLAUDE = desktopClaudeCode(windowsUserEnv())?.file ?? 'claude';
@@ -100,7 +105,8 @@ if (arg('clean')) {
 const tag = crypto.randomUUID().slice(0, 6);
 const name = `cdpc rehearsal ${tag}`;
 const folder = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'cdpc-rehearsal-')), name);
-fs.mkdirSync(folder);
+if (REPO) execFileSync('git', ['clone', '--quiet', '--depth', '1', '-c', 'core.longpaths=true', path.resolve(REPO), folder], { stdio: 'inherit' });
+else fs.mkdirSync(folder);
 let orgId = null;
 
 try {
@@ -112,7 +118,7 @@ try {
     body: { adapterType: 'claude_local', adapterConfig: { model: MODEL, effort: 'medium' }, runtimeConfig: { heartbeat: { enabled: false, wakeOnDemand: true } }, ...body },
   }).then((r) => r.json);
   const chief = await agent({ name: 'Chief of Staff', role: 'ceo', title: 'Chief of Staff' });
-  const cashier = await agent({ name: 'Cashier', role: 'general', title: 'Runs the till', reportsTo: chief?.id });
+  const cashier = await agent({ name: 'Cashier', role: 'general', title: 'Runs the till', reportsTo: chief?.id, adapterConfig: { model: MODEL, effort: 'medium', desktopTools: ['Read', 'Grep', 'Glob'] } });
   check('Chief of Staff and Cashier hired', chief?.id && cashier?.id, [chief?.status ?? chief?.error, cashier?.status ?? cashier?.error]);
 
   // 1 + 2. Brought into the folder, as the plugin does once the org is on Claude Desktop. The plugin leaves a
@@ -123,8 +129,14 @@ try {
   const sync = await syncOrg({ api: API, instance: INSTANCE, companyId: org.id, claude: CLAUDE });
   const agentsDir = path.join(folder, '.claude', 'agents');
   check('agent files', ['cashier.md', 'chief-of-staff.md'].every((f) => fs.existsSync(path.join(agentsDir, f))), fs.existsSync(agentsDir) ? fs.readdirSync(agentsDir) : sync.skipped);
-  const settings = JSON.parse(fs.readFileSync(path.join(folder, '.claude', 'settings.json'), 'utf8'));
-  check("the folder's default agent is the Chief of Staff, with the org's hooks", settings.agent === 'chief-of-staff' && settings.hooks?.UserPromptSubmit && settings.hooks?.SessionStart && settings.hooks?.Stop);
+  check("the Cashier's file lists its tools from Paperclip", /^tools: Bash, SendMessage, Read, Grep, Glob$/m.test(fs.readFileSync(path.join(agentsDir, 'cashier.md'), 'utf8')));
+  check(REPO ? 'in a repo, the hooks are in settings.local.json' : 'the hooks are in settings.json', path.basename(orgSettingsFile(folder)) === (REPO ? 'settings.local.json' : 'settings.json'));
+  if (REPO) {
+    const status = execFileSync('git', ['status', '--porcelain'], { cwd: folder, encoding: 'utf8' }).trim();
+    check("git sees none of the plugin's files", status === '', status.split(/\r?\n/).slice(0, 8));
+  }
+  const settings = JSON.parse(fs.readFileSync(orgSettingsFile(folder), 'utf8'));
+  check("the folder has the org's hooks and no default agent (it would give resumed conversations its tools)", !('agent' in settings) && settings.hooks?.UserPromptSubmit && settings.hooks?.SessionStart && settings.hooks?.Stop);
   check("Paperclip's skills copied", fs.existsSync(path.join(folder, '.claude', 'skills', 'paperclip', 'SKILL.md')), fs.readdirSync(path.join(folder, '.claude', 'skills')).join(', '));
   const helloes = sync.made ?? [];
   check('one hello conversation per agent', helloes.length === 2 && helloes.every((h) => h.ok), helloes.map(({ name: n, ok, reply, error }) => ({ n, ok, reply, error })));
@@ -155,6 +167,12 @@ try {
   check("the Cashier's turn finished", turn.out && !turn.out.is_error, turn.out?.result?.slice?.(0, 300) ?? turn.stderr.slice(0, 300));
   const t = transcriptOf(cashierSession);
   check('it opened with what happened in Paperclip', t && fs.readFileSync(t, 'utf8').includes('Since your last turn, in Paperclip'));
+  // What one model call costs in this folder: the context of the turn's first call (prompt, tools, files that always load).
+  const callTokens = (u) => (u?.input_tokens ?? 0) + (u?.cache_read_input_tokens ?? 0) + (u?.cache_creation_input_tokens ?? 0);
+  const turnCalls = t ? entries(t).filter((e) => e.type === 'assistant' && e.message?.usage).map((e) => callTokens(e.message.usage)) : [];
+  check("tokens per call in this folder (the turn's calls, in order)", turnCalls.length > 0, turnCalls.slice(-12));
+  // Every tool loaded is about 63,000 tokens a call; the Cashier's five keep its first call well under 50,000.
+  check("the turn ran with the Cashier's own tool list", turnCalls.length > 1 && turnCalls[1] < 50_000, turnCalls[1]);
   check('it is still the Cashier', t && lastAgent(t) === 'cashier', lastAgent(t));
   const done = (await call(`/api/issues/${card.id}`)).json;
   check('the card is done', done?.status === 'done', done?.status);
