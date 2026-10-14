@@ -68,14 +68,33 @@ export function createExecute({
 
 const execute = createExecute();
 
-async function testEnvironment(ctx) {
-  const result = await builtin.testEnvironment({ ...ctx, config: nativeConfig(ctx.config, { command: desktopClaudeCode()?.file }) });
-  const code = desktopClaudeCode();
-  const check = code
-    ? { code: 'claude_desktop_code', level: 'info', message: `Claude Desktop's Claude Code ${code.version} is here; the agents work in Claude Desktop.`, detail: code.file }
-    : { code: 'claude_desktop_no_code', level: 'warn', message: "Claude Desktop's Claude Code was not found; this check used `claude` from PATH.", hint: 'Install Claude Desktop.' };
-  return { ...result, checks: [check, ...(result.checks ?? [])] };
+// Paperclip's hello test runs only with the `claude` it trusts on this computer's PATH. With Claude Desktop's own copy
+// it is skipped, and Paperclip then refuses to save an agent whose AI connection it checks on save
+// (ai_connection_validation_incomplete).
+const HELLO_SKIPPED = ['claude_cli_version_probe_mismatch', 'claude_hello_probe_skipped_custom_command', 'claude_hello_probe_skipped_unresolved_command'];
+const skippedHello = (result) => (result?.checks ?? []).some((c) => HELLO_SKIPPED.includes(c.code));
+
+/** The environment test, with what it runs passed in (tests swap them). */
+export function createTestEnvironment({ runBuiltin = (ctx) => builtin.testEnvironment(ctx), desktopCode = () => desktopClaudeCode() } = {}) {
+  return async function testEnvironment(ctx) {
+    const code = desktopCode();
+    let result = await runBuiltin({ ...ctx, config: nativeConfig(ctx.config, { command: code?.file }) });
+    // Desktop's copy skipped the hello: test again with the `claude` on PATH, which signs in with the same account.
+    // Only the sign-in is tested here, so the hello runs at low effort without Chrome, and gets 2 minutes (Paperclip's
+    // 45 seconds ran out at max effort).
+    if (code && skippedHello(result)) {
+      const config = { ...nativeConfig(ctx.config, { command: 'claude' }), effort: 'low', chrome: false, helloProbeTimeoutSec: 120 };
+      const again = await runBuiltin({ ...ctx, config });
+      if (!skippedHello(again)) result = again;
+    }
+    const check = code
+      ? { code: 'claude_desktop_code', level: 'info', message: `Claude Desktop's Claude Code ${code.version} is here; the agents work in Claude Desktop.`, detail: code.file }
+      : { code: 'claude_desktop_no_code', level: 'warn', message: "Claude Desktop's Claude Code was not found; this check used `claude` from PATH.", hint: 'Install Claude Desktop.' };
+    return { ...result, checks: [check, ...(result.checks ?? [])] };
+  };
 }
+
+const testEnvironment = createTestEnvironment();
 
 export const DESKTOP_NOTE = `## Claude Desktop team (ClaudeDesktopPaperClip)
 

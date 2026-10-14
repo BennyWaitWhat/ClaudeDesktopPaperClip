@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createExecute, createServerAdapter, desktopClaudeCode, findPaperclipPackage, nativeConfig, THROWAWAY_ENV, windowsUserEnv } from '../index.mjs';
+import { createExecute, createServerAdapter, createTestEnvironment, desktopClaudeCode, findPaperclipPackage, nativeConfig, THROWAWAY_ENV, windowsUserEnv } from '../index.mjs';
 import { liveSessions, openInDesktop } from '../desktop.mjs';
 
 test("finds Paperclip's own Claude adapter", () => {
@@ -119,4 +119,29 @@ test('stands in for the built-in Claude type with its own pieces', () => {
   assert.equal(typeof a.sessionCodec?.deserialize, 'function');
   assert.ok(Array.isArray(a.models) && a.models.length > 0);
   assert.match(a.agentConfigurationDoc, /Claude Desktop team/);
+});
+
+test("the environment test falls back to the `claude` on PATH when Desktop's own copy skips Paperclip's hello", async () => {
+  const desktop = { file: 'C:/Users/me/AppData/Roaming/Claude/claude-code/2.1.295/x/claude.exe', version: '2.1.295' };
+  const mismatch = { status: 'warn', checks: [{ code: 'claude_cli_version_probe_mismatch', level: 'warn' }] };
+  const passed = { status: 'pass', checks: [{ code: 'claude_hello_probe_passed', level: 'info' }] };
+  const commands = [];
+  const run = (answers) => async (ctx) => {
+    commands.push(ctx.config.command);
+    if (ctx.config.command === 'claude') assert.deepEqual([ctx.config.effort, ctx.config.chrome, ctx.config.helloProbeTimeoutSec], ['low', false, 120], 'only the sign-in is tested');
+    return answers[ctx.config.command === 'claude' ? 1 : 0];
+  };
+
+  const result = await createTestEnvironment({ runBuiltin: run([mismatch, passed]), desktopCode: () => desktop })({ config: { model: 'claude-opus-5-5' } });
+  assert.deepEqual(commands, [desktop.file, 'claude']);
+  assert.equal(result.status, 'pass');
+  assert.deepEqual(result.checks.map((c) => c.code), ['claude_desktop_code', 'claude_hello_probe_passed'], "the PATH test's result, Desktop's copy named first");
+
+  commands.length = 0;
+  const kept = await createTestEnvironment({ runBuiltin: run([mismatch, mismatch]), desktopCode: () => desktop })({ config: {} });
+  assert.deepEqual(kept.checks.map((c) => c.code), ['claude_desktop_code', 'claude_cli_version_probe_mismatch'], 'no better result: the first stays');
+
+  commands.length = 0;
+  await createTestEnvironment({ runBuiltin: run([passed]), desktopCode: () => desktop })({ config: {} });
+  assert.deepEqual(commands, [desktop.file], "Desktop's copy ran the hello: one test");
 });
