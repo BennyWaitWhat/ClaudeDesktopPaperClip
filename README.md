@@ -169,3 +169,8 @@ remove it. Settings > Plugins: disable or remove Claude Desktop (org folders sta
   (`%APPDATA%\Claude\ccd-session-presets.json`, seeded once from the folders open on 2026-10-14). An org folder
   first used after that lists its conversations under "Default", by repo name. File them in a sidebar section of
   their own (Career Catchers has one); a later hire's conversation is filed there the same way.
+- Handing a conversation to Desktop opens it: Desktop starts its Claude Code process and a hidden PowerShell
+  terminal, which stay until Desktop restarts (Career Catchers' 13 held about 2.5 GB, and Desktop's limit of about
+  16 terminals closed other sessions' terminals). It happens once per agent, at org setup or a hire, never per
+  run. Kept as is on 2026-10-14; if orgs get made often, stop each conversation's process right after its
+  hand-off (test first that this closes the terminal too).
