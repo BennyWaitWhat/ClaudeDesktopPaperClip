@@ -214,7 +214,7 @@ try {
   check('and made no card', list((await call(`/api/companies/${org.id}/issues`)).json).length === cardsBefore, chat.out?.result?.slice?.(0, 200));
 
   // 7. A routine, fired as a Claude Desktop scheduled task fires it: the task runs scripts/run-routine.mjs and sends
-  // each line's message to its conversation (here a resumed turn stands in for SendMessage).
+  // each line's message to its conversation (here a resumed turn stands in for Desktop's send_message).
   const routine = (await call(`/api/companies/${org.id}/routines`, { method: 'POST', body: {
     title: 'Close the till', assigneeAgentId: cashier.id, status: 'paused', concurrencyPolicy: 'skip_if_active',
     description: 'Add the comment "Till closed." to this card, then mark it done.',

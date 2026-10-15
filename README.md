@@ -55,7 +55,20 @@ agent's Desktop inbox, which its next Desktop turn opens with, and a card the wa
 or in_progress moves to backlog with the note "Waiting for my next turn in Claude Desktop." (so Paperclip
 neither retries the wake nor sweeps the card as stranded). A card a Desktop turn is working right now is left
 alone. Handing work between agents follows the same rule: a card in backlog, plus a message to the other
-agent's Desktop conversation.
+agent's Desktop conversation. SendMessage reaches a Desktop conversation only through Claude Desktop's own
+messaging tool (`mcp__ccd_session_mgmt__send_message`), so every agent's tool list keeps it, with Bash and
+SendMessage; a conversation gets a changed tool list when it next starts.
+
+## Routines run from Claude Desktop scheduled tasks
+
+Paperclip's own schedule would only park a routine's card, so an org on Claude Desktop keeps its routines paused
+in Paperclip, and a Claude Desktop scheduled task fires each one: it runs `node scripts/run-routine.mjs <routine
+id>...`, which starts the run (the card, assigned to the routine's agent) and prints the message naming the card
+for that agent's conversation, and sends it with Desktop's `send_message` tool (SendMessage refuses in a scheduled
+run). One run per routine per day: a second firing the same day (Desktop catching up after a restart) starts and
+sends nothing; `--again` starts one anyway, after a run that failed. A scheduled task runs while Claude Desktop is
+open, or at its next launch; in the folder and on the model Desktop gives it, in the permission mode Claude Code's
+settings set as default.
 
 ## Agent files
 

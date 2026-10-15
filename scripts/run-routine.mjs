@@ -2,8 +2,9 @@
 // Start a Paperclip routine's run for an org on Claude Desktop, and say which Desktop conversation to tell.
 // Paperclip only parks the card its own schedule makes (README > "Paperclip's own wakes wait for Desktop"), so an
 // org on Claude Desktop keeps its routines paused in Paperclip and fires them from Claude Desktop scheduled tasks:
-// the task runs this, then sends each line's message to its conversation with SendMessage, which starts that
-// agent's turn on the card.
+// the task runs this, then sends each line's message to its conversation with Claude Desktop's send_message tool
+// (mcp__ccd_session_mgmt__send_message; SendMessage refuses in a scheduled run, "this session wasn't opened in
+// the app"), which starts that agent's turn on the card.
 //   node scripts/run-routine.mjs <routine id>... [--date YYYY-MM-DD] [--again]
 // One JSON line per routine: {"routine", "title", "status", "card", "agent", "conversation", "send", "message"},
 // or {"routine", "error"}. A second run on the same day (Desktop catching up after a restart) starts nothing new
