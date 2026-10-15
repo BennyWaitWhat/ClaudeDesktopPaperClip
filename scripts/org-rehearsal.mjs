@@ -8,7 +8,10 @@
 //   4. the Cashier's next turn (its conversation, resumed) opens with that, and takes the card to done through the
 //      Paperclip API with its own key and the turn's run id, all of it recorded as one run on the card;
 //   5. work asked for in Desktop (no card named) becomes a card the Cashier makes itself, recorded as a run on it,
-//      never parked; 6. chat makes no card.
+//      never parked; 6. chat makes no card;
+//   7. a routine fired the way a Claude Desktop scheduled task fires it (scripts/run-routine.mjs, the routine
+//      paused in Paperclip): its card waits in the Cashier's inbox, the message names it to the Cashier's
+//      conversation and starts the turn that takes it to done; a second firing the same day sends nothing.
 // The Cashier has a tool list in Paperclip (Read, Grep, Glob), so its agent file carries a tools line. With --repo,
 // the org folder is a clone of that git repo (a project's own copy, grill Q23): the hooks go in settings.local.json,
 // the plugin's files stay out of git, and the Cashier's first real turn reports what one call costs there.
@@ -20,6 +23,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { desktopClaudeCode, windowsUserEnv } from '../desktop.mjs';
 import { orgFile, readOrg, switchOrg } from '../desktop-orgs.mjs';
 import { seenFile, turnsDir } from '../desktop-turn.mjs';
@@ -129,7 +133,7 @@ try {
   const sync = await syncOrg({ api: API, instance: INSTANCE, companyId: org.id, claude: CLAUDE });
   const agentsDir = path.join(folder, '.claude', 'agents');
   check('agent files', ['cashier.md', 'chief-of-staff.md'].every((f) => fs.existsSync(path.join(agentsDir, f))), fs.existsSync(agentsDir) ? fs.readdirSync(agentsDir) : sync.skipped);
-  check("the Cashier's file lists its tools from Paperclip", /^tools: Bash, SendMessage, Read, Grep, Glob$/m.test(fs.readFileSync(path.join(agentsDir, 'cashier.md'), 'utf8')));
+  check("the Cashier's file lists its tools from Paperclip", /^tools: Bash, SendMessage, mcp__ccd_session_mgmt__send_message, Read, Grep, Glob$/m.test(fs.readFileSync(path.join(agentsDir, 'cashier.md'), 'utf8')));
   check(REPO ? 'in a repo, the hooks are in settings.local.json' : 'the hooks are in settings.json', path.basename(orgSettingsFile(folder)) === (REPO ? 'settings.local.json' : 'settings.json'));
   if (REPO) {
     const status = execFileSync('git', ['status', '--porcelain'], { cwd: folder, encoding: 'utf8' }).trim();
@@ -208,6 +212,27 @@ try {
     '--resume', cashierSession, '--output-format', 'json', '--max-turns', '10', '--permission-mode', 'acceptEdits'], folder);
   check('the chat turn finished', chat.out && !chat.out.is_error, chat.out?.result?.slice?.(0, 300) ?? chat.stderr.slice(0, 300));
   check('and made no card', list((await call(`/api/companies/${org.id}/issues`)).json).length === cardsBefore, chat.out?.result?.slice?.(0, 200));
+
+  // 7. A routine, fired as a Claude Desktop scheduled task fires it: the task runs scripts/run-routine.mjs and sends
+  // each line's message to its conversation (here a resumed turn stands in for SendMessage).
+  const routine = (await call(`/api/companies/${org.id}/routines`, { method: 'POST', body: {
+    title: 'Close the till', assigneeAgentId: cashier.id, status: 'paused', concurrencyPolicy: 'skip_if_active',
+    description: 'Add the comment "Till closed." to this card, then mark it done.',
+  } })).json;
+  const fire = () => new Promise((resolve) => execFile(process.execPath, [fileURLToPath(new URL('./run-routine.mjs', import.meta.url)), routine.id],
+    { env: process.env, windowsHide: true, timeout: 60_000 }, (err, stdout, stderr) => {
+      try { resolve(JSON.parse(String(stdout).trim().split(/\r?\n/).pop())); } catch { resolve({ error: String(stderr || stdout || err?.message).slice(0, 300) }); }
+    }));
+  const fired = await fire();
+  check("the routine's run names its card to the Cashier's conversation", fired.send === true && fired.card && fired.conversation === `local_${cashierSession}` && fired.message?.includes(fired.card), fired);
+  const routineCard = list((await call(`/api/companies/${org.id}/issues`)).json).find((c) => c.identifier === fired.card);
+  const waits = await until(async () => (await call(`/api/issues/${routineCard?.id}`)).json?.status === 'backlog');
+  check("the card waits for Desktop, in the Cashier's inbox", waits && await until(() => fs.existsSync(inboxFile(INSTANCE, cashier.id)), 10_000), (await call(`/api/issues/${routineCard?.id}`)).json?.status);
+  const routineTurn = await claudeTurn(['-p', fired.message ?? '', '--resume', cashierSession, '--output-format', 'json', '--max-turns', '25', '--permission-mode', 'acceptEdits'], folder);
+  check("the Cashier's turn on that message finished", routineTurn.out && !routineTurn.out.is_error, routineTurn.out?.result?.slice?.(0, 300) ?? routineTurn.stderr.slice(0, 300));
+  check("and took the routine's card to done", (await call(`/api/issues/${routineCard?.id}`)).json?.status === 'done', (await call(`/api/issues/${routineCard?.id}`)).json?.status);
+  const refired = await fire();
+  check('a second firing the same day sends nothing', refired.send === false && refired.card === fired.card, refired);
 } catch (error) {
   check('rehearsal finished', false, error.stack ?? error.message);
 } finally {
