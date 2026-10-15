@@ -6,7 +6,7 @@ import test from 'node:test';
 import { clearStaleLock, keepSignInFresh, needsRenewal, tokenExpiry } from '../claude-sign-in.mjs';
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'sign-in-'));
-const signIn = (dir, expiresAt) => fs.writeFileSync(path.join(dir, '.credentials.json'), JSON.stringify({ claudeAiOauth: { accessToken: 'x', expiresAt } }));
+const signIn = (dir, expiresAt) => fs.writeFileSync(path.join(dir, '.credentials.json'), JSON.stringify({ claudeAiOauth: { accessToken: 'x', refreshToken: 'r', expiresAt } }));
 const NOW = Date.parse('2026-10-12T23:00:00Z');
 const HOUR = 60 * 60_000;
 
@@ -15,6 +15,15 @@ test('reads the expiry, and null with no sign-in', () => {
   assert.equal(tokenExpiry(dir), null);
   signIn(dir, NOW + HOUR);
   assert.equal(tokenExpiry(dir), NOW + HOUR);
+});
+
+test('a sign-in Claude Code signed out (no refresh token, expiry 0) counts as none, and runs nothing', async () => {
+  const dir = tmp();
+  fs.writeFileSync(path.join(dir, '.credentials.json'), JSON.stringify({ claudeAiOauth: { accessToken: '', expiresAt: 0, scopes: ['user:inference'] } }));
+  assert.equal(tokenExpiry(dir), null);
+  let runs = 0;
+  assert.equal((await keepSignInFresh({ dir, now: () => NOW, run: async () => { runs++; return { ok: false }; } })).reason, 'not signed in');
+  assert.equal(runs, 0);
 });
 
 test('renews once the token has expired, never before and never without a sign-in', () => {

@@ -162,7 +162,7 @@ test("settings page tools: each Claude agent's list in Claude Desktop, saved int
     const { h } = await harness();
     options.api = `http://127.0.0.1:${server.address().port}`;
     assert.deepEqual(await h.getData('agent-tools', { companyId: 'c1' }), {
-      always: ['Bash', 'SendMessage'],
+      always: ['Bash', 'SendMessage', 'mcp__ccd_session_mgmt__send_message'],
       agents: [{ id: 'a1', name: 'Chief of Staff', title: null, tools: [] }, { id: 'a2', name: 'Cashier', title: 'Runs the till', tools: ['Read'] }],
     }, 'Claude agents only, Chief of Staff first; the tools that always stay are not repeated');
     assert.deepEqual(await h.performAction('set-agent-tools', { companyId: 'c1', agentId: 'a2', tools: 'Read, Grep\nnot a tool!, Bash' }), { tools: ['Read', 'Grep'] });

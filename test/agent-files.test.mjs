@@ -31,11 +31,11 @@ test("an agent file: its Paperclip model, effort, Skip permissions and id up top
   assert.doesNotMatch(md, /^tools:/m, 'no tool list in Paperclip: every tool');
 });
 
-test("an agent's tool list from Paperclip goes into its file, always with Bash and SendMessage, and nothing but tool names", () => {
+test("an agent's tool list from Paperclip goes into its file, always with Bash, SendMessage and Desktop's messaging tool, and nothing but tool names", () => {
   const withTools = (desktopTools) => agentMarkdown({ agent: { ...cashier, adapterConfig: { ...cashier.adapterConfig, desktopTools } }, slug: 'cashier', org: 'X', instructions: '' });
-  assert.match(withTools(['Read', 'Grep', 'mcp__Claude_Browser']), /^tools: Bash, SendMessage, Read, Grep, mcp__Claude_Browser$/m);
-  assert.match(withTools('Read, Write\nBash'), /^tools: Bash, SendMessage, Read, Write$/m, 'a comma or line separated list, each tool once');
-  assert.match(withTools(['Read', 'evil: yes\nmodel: x', '  ', 'Write']), /^tools: Bash, SendMessage, Read, Write$/m, 'anything that is not a tool name is dropped');
+  assert.match(withTools(['Read', 'Grep', 'mcp__Claude_Browser']), /^tools: Bash, SendMessage, mcp__ccd_session_mgmt__send_message, Read, Grep, mcp__Claude_Browser$/m);
+  assert.match(withTools('Read, Write\nBash'), /^tools: Bash, SendMessage, mcp__ccd_session_mgmt__send_message, Read, Write$/m, 'a comma or line separated list, each tool once');
+  assert.match(withTools(['Read', 'evil: yes\nmodel: x', '  ', 'Write']), /^tools: Bash, SendMessage, mcp__ccd_session_mgmt__send_message, Read, Write$/m, 'anything that is not a tool name is dropped');
   assert.doesNotMatch(withTools([]), /^tools:/m);
   assert.doesNotMatch(withTools(['not a tool!']), /^tools:/m, 'nothing usable listed: every tool');
 });

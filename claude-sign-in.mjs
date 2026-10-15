@@ -18,11 +18,15 @@ export function claudeConfigDir(env = process.env) {
   return env.CLAUDE_CONFIG_DIR?.trim() || path.join(os.homedir(), '.claude');
 }
 
-/** When command-line Claude's access token expires (ms), or null with no sign-in. */
+/**
+ * When command-line Claude's access token expires (ms), or null with no sign-in to renew: none at all, or one
+ * Claude Code signed out (it keeps the file, with no refresh token and an expiry of 0; only `claude auth login`
+ * mends that, and every renewal would fail, as one a minute did from 2026-10-14 8 PM to 10-15 4 PM).
+ */
 export function tokenExpiry(dir = claudeConfigDir()) {
   try {
-    const at = JSON.parse(fs.readFileSync(path.join(dir, '.credentials.json'), 'utf8'))?.claudeAiOauth?.expiresAt;
-    return typeof at === 'number' ? at : null;
+    const oauth = JSON.parse(fs.readFileSync(path.join(dir, '.credentials.json'), 'utf8'))?.claudeAiOauth;
+    return typeof oauth?.expiresAt === 'number' && oauth.refreshToken ? oauth.expiresAt : null;
   } catch {
     return null;
   }

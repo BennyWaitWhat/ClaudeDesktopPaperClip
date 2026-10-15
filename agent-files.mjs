@@ -38,8 +38,10 @@ const yaml = (value) => JSON.stringify(String(value));
 /** Paperclip's "Skip permissions" switch for a Claude agent (on unless turned off, as in Paperclip's own Claude type). */
 export const skipsPermissions = (agent) => agent?.adapterConfig?.dangerouslySkipPermissions !== false;
 
-// A tool list always keeps these: Paperclip calls and the card tool go through Bash, hand-offs through SendMessage.
-export const ALWAYS_TOOLS = ['Bash', 'SendMessage'];
+// A tool list always keeps these: Paperclip calls and the card tool go through Bash, hand-offs through SendMessage,
+// which reaches a Desktop conversation only through Claude Desktop's own messaging tool. Without that tool every
+// hand-off fails ("Claude Desktop's session messaging tool is not available in this session", 2026-10-15).
+export const ALWAYS_TOOLS = ['Bash', 'SendMessage', 'mcp__ccd_session_mgmt__send_message'];
 const TOOL_NAME = /^[A-Za-z][\w.-]{0,127}$/;
 
 /**

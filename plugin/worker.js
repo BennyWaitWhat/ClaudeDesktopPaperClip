@@ -122,13 +122,19 @@ function watchOrg(companyId) {
   feed.addEventListener('error', () => {});
 }
 
-// Paperclip's wizard reads command-line Claude's sign-in and never renews it; renew it once it expires.
+// Paperclip's wizard reads command-line Claude's sign-in and never renews it; renew it once it expires. Signed
+// out, nothing can renew it: say so once an hour, since new hires' first conversations need it too.
 let renewing = null;
+let saidSignedOut = 0;
 function checkSignIn() {
   renewing ??= options.signIn({ claude: claude() })
     .then((result) => {
       if (result.renewed) log('info', "Renewed command-line Claude's sign-in for Paperclip's Claude checks", { expiresAt: new Date(result.expiresAt).toISOString(), clearedLock: result.clearedLock });
       else if (result.error) log('warn', "Command-line Claude's sign-in did not renew", { error: result.error });
+      else if (result.reason === 'not signed in' && Date.now() - saidSignedOut >= 60 * 60_000) {
+        saidSignedOut = Date.now();
+        log('warn', 'Command-line Claude is signed out: run "claude auth login" (Paperclip\'s Claude checks and new hires\' first conversations need it)');
+      }
     })
     .catch((err) => log('warn', "Checking command-line Claude's sign-in failed", { error: String(err) }))
     .finally(() => { renewing = null; });
@@ -210,7 +216,7 @@ const plugin = definePlugin({
     });
 
     // Settings > Org folder > Tools: each Claude agent's tool list in Claude Desktop (adapterConfig.desktopTools), the
-    // biggest part of what every model call carries (grill Q24). Bash and SendMessage always stay.
+    // biggest part of what every model call carries (grill Q24). Bash, SendMessage and Desktop's messaging tool always stay.
     const ownTools = (agent) => desktopTools(agent).filter((t) => !ALWAYS_TOOLS.includes(t));
     ctx.data.register('agent-tools', async ({ companyId }) => {
       if (!companyId) return { always: ALWAYS_TOOLS, agents: [] };

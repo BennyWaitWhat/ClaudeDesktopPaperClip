@@ -55,7 +55,7 @@ function ToolsSection() {
   return h('section', { className: 'space-y-3' },
     h('h3', { className: 'text-sm font-medium' }, 'Tools in Claude Desktop'),
     h('p', { className: 'text-xs text-muted-foreground' },
-      `Each agent's conversation loads only the tools listed for it, and every model call carries their descriptions: a short list costs fewer tokens on every call. Name a tool (Read, WebFetch) or a whole MCP server (mcp__Claude_Browser), separated by commas; leave it empty for every tool. ${(data?.always ?? ['Bash', 'SendMessage']).join(' and ')} always stay, for Paperclip calls and hand-offs. A change applies when the agent's conversation next starts in Claude Desktop.`),
+      `Each agent's conversation loads only the tools listed for it, and every model call carries their descriptions: a short list costs fewer tokens on every call. Name a tool (Read, WebFetch) or a whole MCP server (mcp__Claude_Browser), separated by commas; leave it empty for every tool. ${(data?.always ?? ['Bash', 'SendMessage']).join(', ')} always stay, for Paperclip calls and hand-offs. A change applies when the agent's conversation next starts in Claude Desktop.`),
     agents.length ? agents.map((agent) => h(ToolsRow, { key: agent.id, agent, save })) : h('p', { className: 'text-xs text-muted-foreground' }, 'This org has no Claude agents yet.'));
 }
 
