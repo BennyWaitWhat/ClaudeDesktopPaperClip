@@ -166,7 +166,8 @@ remove it. Settings > Plugins: disable or remove Claude Desktop (org folders sta
   `logs/paperclip-server.log`, and does nothing if it is already up; run through `conhost.exe --headless` it has no
   window at all. `scripts/stop-paperclip.ps1` stops it cleanly (Ctrl+C to its console, so its database closes too).
   Start it from Windows (a shortcut, Explorer, the Startup folder), never from a Claude session's shell: started
-  there, it stops when Claude Desktop quits (it did on 2026-10-14 at 7:01 PM).
+  there, it stops when Claude Desktop quits (it did on 2026-10-14 at 7:01 PM). On Benny's PC, `Paperclip.lnk` in his
+  Startup folder (`shell:startup`) starts it hidden at every logon since 2026-10-15; deleting it undoes that.
 
 - Windows first: finding Claude Desktop's Claude Code and handing conversations to it are Windows-only.
 - Paperclip's own wakes wait for the agent's next Desktop turn: nothing starts on its own.
