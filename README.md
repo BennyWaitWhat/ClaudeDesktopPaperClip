@@ -161,6 +161,12 @@ remove it. Settings > Plugins: disable or remove Claude Desktop (org folders sta
 
 ## Limits
 
+- Windows has no Paperclip service (`paperclipai service` answers "not supported on win32"), so Paperclip runs only
+  while something has started it. `scripts/start-paperclip.ps1` starts it in its own minimized window, logging to the
+  instance's `logs/paperclip-server.log`, and does nothing if it is already up. Start it from Windows (a shortcut,
+  Explorer, the Startup folder), never from a Claude session's shell: started there, it stops when Claude Desktop
+  quits (it did on 2026-10-14 at 7:01 PM).
+
 - Windows first: finding Claude Desktop's Claude Code and handing conversations to it are Windows-only.
 - Paperclip's own wakes wait for the agent's next Desktop turn: nothing starts on its own.
 - Command-line Claude must be signed in to the same Claude organization as Claude Desktop (`claude auth
