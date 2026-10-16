@@ -106,6 +106,32 @@ export async function createOwnCard({ api, token, companyId, agentId, runId, tit
   return (res.status === 200 || res.status === 201) && res.json?.id ? res.json : { error: `Paperclip answered ${res.status}: ${JSON.stringify(res.json ?? {}).slice(0, 200)}` };
 }
 
+/**
+ * A step only the board can do (answer, decide, send, submit, book, sign in) gets a card of its own, assigned to the
+ * board user so it is in their Paperclip inbox: a sub-card of the agent's card that blocks it until the board marks it
+ * done. The agent's card goes back to blocked even when it was closed already, since a card whose last step is the
+ * board's is not finished (Benny, 2026-10-15: "how come nothing gets assigned to me ... they were being marked
+ * complete without me finishing"). Returns the new card with `parent` ({ identifier, blocked }), or { error }.
+ */
+export async function createBoardCard({ api, token, runId, parentId, title, description }) {
+  const parent = await paperclipCall(api, `/api/issues/${encodeURIComponent(parentId)}`, { token, runId });
+  if (parent.status !== 200 || !parent.json?.id) return { error: `Paperclip has no card ${parentId} (${parent.status})` };
+  const card = parent.json;
+  const board = card.responsibleUserId ?? card.createdByUserId ?? null;
+  if (!board) return { error: `${card.identifier ?? parentId} names no board user to give the card to` };
+  const made = await paperclipCall(api, `/api/issues/${card.id}/children`, {
+    method: 'POST', token, runId,
+    body: { title, ...(description ? { description } : {}), status: 'todo', assigneeUserId: board, blockParentUntilDone: true },
+  });
+  if (!((made.status === 200 || made.status === 201) && made.json?.id)) return { error: `Paperclip answered ${made.status}: ${JSON.stringify(made.json ?? {}).slice(0, 200)}` };
+  let blocked = card.status === 'blocked';
+  if (!blocked) {
+    const moved = await paperclipCall(api, `/api/issues/${card.id}`, { method: 'PATCH', token, runId, body: { status: 'blocked' } });
+    blocked = moved.status === 200;
+  }
+  return { ...made.json, parent: { id: card.id, identifier: card.identifier ?? parentId, blocked } };
+}
+
 /** Claim a card for this run, the way Paperclip's agents do (checkout: in_progress, held by the run). */
 export async function checkoutCard({ api, token, issueId, agentId, runId }) {
   const res = await paperclipCall(api, `/api/issues/${issueId}/checkout`, {

@@ -37,6 +37,9 @@ async function fakePaperclip({ quick = false, folds = [], cards = [] } = {}) {
     if (req.method === 'POST' && req.url === '/api/companies/org-1/issues') return send(201, { id: 'card-10', identifier: 'LEM-10', ...JSON.parse(body) });
     if (req.method === 'POST' && req.url === '/api/issues/card-10/checkout') return send(200, { id: 'card-10', status: 'in_progress' });
     if (req.url === '/api/issues/LEM-8') return send(200, { id: 'card-8', identifier: 'LEM-8' });
+    if (req.method === 'GET' && req.url === '/api/issues/card-8') return send(200, { id: 'card-8', identifier: 'LEM-8', status: 'done', responsibleUserId: 'local-board' });
+    if (req.method === 'POST' && req.url === '/api/issues/card-8/children') return send(201, { id: 'card-11', identifier: 'LEM-11', parentId: 'card-8', ...JSON.parse(body) });
+    if (req.method === 'PATCH' && req.url === '/api/issues/card-8') return send(200, { id: 'card-8', ...JSON.parse(body) });
     if (req.url.startsWith('/api/issues/')) return send(404, { error: 'Issue not found' });
     if (req.url.startsWith('/api/heartbeat-runs/')) return send(200, { id: last, status: runs.get(last) ?? 'succeeded' });
     if (req.url === '/api/agents/agent-1/wakeup') {
@@ -305,6 +308,40 @@ test('work goes on cards: a turn on no card is told so with its open cards, and 
     // A turn on a card ends at once.
     await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'LEM-8: the lemons came' });
     assert.equal((await hook(stop)).stdout, '');
+  } finally {
+    paperclip.close();
+  }
+});
+
+test("paperclip-card --board gives the board a card in their inbox, under the turn's card, which it keeps blocked", async () => {
+  const paperclip = await fakePaperclip();
+  try {
+    const instance = tmp('instance');
+    const { transcript } = orgFolder();
+    const dir = turnsDir(instance);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(turnFile(dir, 'run-8'), JSON.stringify({ runId: 'run-8', sessionId: 'conv-1', transcript, offset: 0, issueId: 'card-8' }));
+    fs.writeFileSync(sessionFile(dir, 'conv-1'), JSON.stringify({ runId: 'run-8' }));
+    const env = { PAPERCLIP_API_URL: paperclip.api, PAPERCLIP_API_KEY: 'pcp_key', PAPERCLIP_AGENT_ID: 'agent-1', PAPERCLIP_INSTANCE_ROOT: instance, CLAUDE_DESKTOP_SESSION_ID: 'conv-1' };
+
+    const made = await run(CARD_TOOL, ['--board', 'Send: the Taco Maco receipt', '--body', 'The draft is in Gmail: send it, then mark this card done.'], { env });
+    assert.equal(made.code, 0, made.stderr);
+    const child = paperclip.calls.find((c) => c.method === 'POST' && c.url === '/api/issues/card-8/children');
+    assert.deepEqual(child.body, { title: 'Send: the Taco Maco receipt', description: 'The draft is in Gmail: send it, then mark this card done.', status: 'todo', assigneeUserId: 'local-board', blockParentUntilDone: true }, "assigned to the board user responsible for the turn's card");
+    assert.equal(child.runId, 'run-8', "made by the turn's run");
+    const reopened = paperclip.calls.find((c) => c.method === 'PATCH' && c.url === '/api/issues/card-8');
+    assert.deepEqual(reopened.body, { status: 'blocked' }, "a card closed before the board's step is open again, blocked");
+    assert.match(made.stdout, /Made LEM-11 "Send: the Taco Maco receipt" for the board: it is in their Paperclip inbox, under LEM-8, which waits blocked on it\./);
+    assert.ok(!paperclip.calls.some((c) => c.url.endsWith('/wakeup')), 'the turn stays where it is');
+
+    const under = await run(CARD_TOOL, ['--board', 'Answer: business or personal?', '--under', 'LEM-8'], { env });
+    assert.equal(under.code, 0, under.stderr);
+
+    fs.writeFileSync(turnFile(dir, 'run-8'), JSON.stringify({ runId: 'run-8', sessionId: 'conv-1', transcript, offset: 0 }));
+    const nowhere = await run(CARD_TOOL, ['--board', 'Decide: keep or close'], { env });
+    assert.equal(nowhere.code, 1);
+    assert.match(nowhere.stderr, /on no card: name the card the step belongs to with --under <CARD>/);
+    assert.equal((await run(CARD_TOOL, ['--board'], { env })).code, 2, 'a card needs a title');
   } finally {
     paperclip.close();
   }

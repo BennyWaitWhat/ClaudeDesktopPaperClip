@@ -34,7 +34,14 @@ The org folder's `.claude/settings.json` runs three hooks (`org-folder.mjs` puts
   agent's open cards, and anything it is asked to do, record, track or follow up goes on a card first:
   `node hooks/paperclip-card.mjs --new "<title>" --body "<what was asked>"` makes the card, assigned to the agent,
   and the rest of the turn records on it, checked out (made in backlog, then claimed by the turn's own run, so
-  Paperclip never wakes the agent for it). Questions for you go on the card as a comment, with the card blocked.
+  Paperclip never wakes the agent for it).
+- **Your steps get your cards.** Anything only you can do (answer a question, decide, send, submit, book, sign
+  in) gets a card of its own, assigned to you, so it is in your Paperclip inbox:
+  `node hooks/paperclip-card.mjs --board "Send: the lemon order" --body "<what to do, and where>"` makes it under
+  the turn's card (or `--under <CARD>`) with Paperclip's sub-card blocker, and puts the agent's card back to
+  blocked even when it was already closed: a card whose last step is yours is not finished. When you mark yours
+  done, Paperclip's wake for the agent goes to its Desktop inbox, so its next turn checks the result, records it,
+  and closes its card.
 - **Stop**: the turn's end ends its run. A turn you or a teammate started that is about to end still on no card is
   stopped once first and asked to put its work on a card; chat and quick answers end as they are, and so does a turn
   a background notice started (a finished task, an artifact subscription). A turn stopped in Claude Desktop runs no

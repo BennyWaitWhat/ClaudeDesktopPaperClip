@@ -19,6 +19,7 @@ import { inboxText, takeInbox } from '../paperclip-wakes.mjs';
 const CARD_TOOL = fileURLToPath(new URL('./paperclip-card.mjs', import.meta.url));
 const tool = `node "${CARD_TOOL.replace(/\\/g, '/')}"`;
 const NEW_CARD = `${tool} --new "<short title>" --body "<what was asked>"`;
+const BOARD_CARD = `${tool} --board "<Verb>: <what>" --body "<what to do, and where>"`;
 
 const { api, instance, chiefId } = hookArgs();
 if (insidePaperclipRun() || !instance) process.exit(0);
@@ -36,7 +37,7 @@ if (input.hook_event_name === 'Stop') {
   if (turn && !turn.issueId && !turn.done && !input.stop_hook_active && process.env[HELLO_ENV] !== '1' && (origin === null || origin === 'human' || origin === 'peer')) {
     process.stdout.write(JSON.stringify({
       decision: 'block',
-      reason: `This turn is on no Paperclip card. If the message asked for anything to be done, recorded, tracked or followed up, put it on a card now: ${NEW_CARD} (or ${tool} <CARD> for one of your open cards), put your draft, result or questions on it as a comment, and leave it done, in_review, or blocked (waiting on the board's answer). If the message was only chat or a quick question, end the turn as it is, without a card and without saying more.`,
+      reason: `This turn is on no Paperclip card. If the message asked for anything to be done, recorded, tracked or followed up, put it on a card now: ${NEW_CARD} (or ${tool} <CARD> for one of your open cards), put your draft or result on it as a comment, give each step only the board can do (an answer, a decision, a send, a submit) its own card in their inbox with ${BOARD_CARD}, and leave yours done, in_review, or blocked (on the board's card). If the message was only chat or a quick question, end the turn as it is, without a card and without saying more.`,
     }));
     process.exit(0);
   }
@@ -77,7 +78,7 @@ const run = runId
     `Paperclip run ${runId} records this turn${card ? `, on ${card.identifier}` : ' (on no card yet)'}, and $PAPERCLIP_RUN_ID holds it. Send "X-Paperclip-Run-Id: $PAPERCLIP_RUN_ID" with the Paperclip API calls you make in this turn.`,
     card
       ? `It already runs on ${card.identifier}: comment on it and update it freely (and up to 20 other cards). To move to a different card, first leave ${card.identifier} done, in_review, blocked, or in backlog, then run ${tool} <CARD>.`
-      : `Work goes on cards, so Paperclip shows it: if this message asks for anything to be done, recorded, tracked or followed up, put it on a card before you start. Continue one of your cards with ${tool} <CARD>, or make one with ${NEW_CARD} (assigned to you and in progress; the rest of the turn records on it). Your questions for the board go on the card as a comment, with the card left blocked. Only chat and quick answers need no card. ${openCardsText(mine)}`,
+      : `Work goes on cards, so Paperclip shows it: if this message asks for anything to be done, recorded, tracked or followed up, put it on a card before you start. Continue one of your cards with ${tool} <CARD>, or make one with ${NEW_CARD} (assigned to you and in progress; the rest of the turn records on it). A step only the board can do (an answer, a decision, a send, a submit) gets its own card in their inbox, with ${BOARD_CARD}, and your card waits blocked on it. Only chat and quick answers need no card. ${openCardsText(mine)}`,
   ].join(' ')
   : `Paperclip opened no run for this turn (${key ? 'it refused the wake; is the agent paused?' : 'Paperclip is not answering'}), so the turn is not recorded there and Paperclip calls that need a run will fail.`;
 

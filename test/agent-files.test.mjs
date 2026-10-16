@@ -25,6 +25,8 @@ test("an agent file: its Paperclip model, effort, Skip permissions and id up top
   assert.match(body, /paperclip-card\.mjs" <CARD>/);
   assert.match(body, /Work goes on cards/);
   assert.match(body, /paperclip-card\.mjs" --new "<short title>"/);
+  assert.match(body, /paperclip-card\.mjs" --board "<Verb>: <what>"/, 'a step only the board can do gets its own card');
+  assert.match(body, /never mark your card done while a card for the board under it is open/);
   assert.match(body, /You run the till\.\n$/);
   assert.doesNotMatch(agentMarkdown({ agent: { ...cashier, adapterConfig: {} }, slug: 'cashier', org: 'X', instructions: '' }), /^(model|effort):/m, 'nothing Paperclip does not set');
   assert.match(agentMarkdown({ agent: { ...cashier, adapterConfig: { dangerouslySkipPermissions: false } }, slug: 'cashier', org: 'X', instructions: '' }), /^paperclip-skip-permissions: false$/m, 'Skip permissions turned off in Paperclip');

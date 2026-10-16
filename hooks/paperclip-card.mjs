@@ -4,22 +4,27 @@
 // the card, for work the board or a teammate asked for in Desktop: assigned to the agent, and claimed by the turn's
 // new run (in_progress), the way Paperclip's own agents check out their cards. Run inside the agent's conversation
 // (its environment comes from the org folder's SessionStart hook, hooks/desktop-session.mjs).
+// With --board it makes a card for the board instead, for a step only they can do (an answer, a decision, a send, a
+// submit, a booking): assigned to them, so it is in their Paperclip inbox, and under the turn's card (or --under's),
+// which waits blocked on it until they mark it done. The turn stays where it is.
 //   node paperclip-card.mjs LEM-8
 //   node paperclip-card.mjs --new "Record the Taco Maco expense" [--body "What was asked, and where it stands"]
+//   node paperclip-card.mjs --board "Send: the Taco Maco receipt to the bookkeeper" [--body "The draft is in Gmail"] [--under LEM-8]
 import fs from 'node:fs';
-import { checkoutCard, createOwnCard, currentTurn, doneFile, namedCard, openTurnRun, sessionFile, turnFile, turnsDir } from '../desktop-turn.mjs';
+import { checkoutCard, createBoardCard, createOwnCard, currentTurn, doneFile, namedCard, openTurnRun, sessionFile, turnFile, turnsDir } from '../desktop-turn.mjs';
 
 const env = process.env;
 const argv = process.argv.slice(2);
 const flag = (name) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; };
 const making = argv[0] === '--new';
-const title = making ? String(flag('--new') ?? '').replace(/\s+/g, ' ').trim() : '';
-const body = making ? String(flag('--body') ?? '').trim() : '';
-const card = making ? null : argv[0];
-const usage = 'Usage: node paperclip-card.mjs <CARD, e.g. LEM-8>\n   or: node paperclip-card.mjs --new "<short title>" [--body "<what was asked>"]';
-const need = ['PAPERCLIP_API_URL', 'PAPERCLIP_API_KEY', 'PAPERCLIP_AGENT_ID', ...(making ? ['PAPERCLIP_COMPANY_ID'] : []), 'PAPERCLIP_INSTANCE_ROOT', 'CLAUDE_DESKTOP_SESSION_ID', 'CLAUDE_DESKTOP_TRANSCRIPT'];
+const boarding = argv[0] === '--board';
+const title = making || boarding ? String(flag(argv[0]) ?? '').replace(/\s+/g, ' ').trim() : '';
+const body = making || boarding ? String(flag('--body') ?? '').trim() : '';
+const card = making || boarding ? null : argv[0];
+const usage = 'Usage: node paperclip-card.mjs <CARD, e.g. LEM-8>\n   or: node paperclip-card.mjs --new "<short title>" [--body "<what was asked>"]\n   or: node paperclip-card.mjs --board "<Verb>: <what>" [--body "<what to do, and where>"] [--under <CARD>]';
+const need = ['PAPERCLIP_API_URL', 'PAPERCLIP_API_KEY', 'PAPERCLIP_AGENT_ID', ...(making ? ['PAPERCLIP_COMPANY_ID'] : []), 'PAPERCLIP_INSTANCE_ROOT', 'CLAUDE_DESKTOP_SESSION_ID', ...(boarding ? [] : ['CLAUDE_DESKTOP_TRANSCRIPT'])];
 const missing = need.filter((k) => !env[k]);
-if ((making ? !title : !card) || missing.length) {
+if ((making || boarding ? !title : !card) || missing.length) {
   console.error(missing.length ? `Not inside an org agent's Claude Desktop conversation (missing ${missing.join(', ')}).` : usage);
   process.exit(2);
 }
@@ -29,6 +34,24 @@ const token = env.PAPERCLIP_API_KEY;
 const agentId = env.PAPERCLIP_AGENT_ID;
 const dir = turnsDir(env.PAPERCLIP_INSTANCE_ROOT);
 const readJson = (file) => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; } };
+
+if (boarding) {
+  const turn = currentTurn(dir, env.CLAUDE_DESKTOP_SESSION_ID);
+  const under = flag('--under');
+  const parent = under ? await namedCard({ api, token, text: under }) : turn?.issueId ? { id: turn.issueId } : null;
+  if (!parent) {
+    console.error(under ? `Paperclip has no card ${under}.` : 'This turn is on no card: name the card the step belongs to with --under <CARD>.');
+    process.exit(1);
+  }
+  const made = await createBoardCard({ api, token, runId: turn?.runId ?? env.PAPERCLIP_RUN_ID, parentId: parent.id, title, description: body });
+  if (made.error) {
+    console.error(`Paperclip did not make the board's card (${made.error}).`);
+    process.exit(1);
+  }
+  const { identifier: parentName, blocked } = made.parent;
+  console.log(`Made ${made.identifier} "${title}" for the board: it is in their Paperclip inbox, under ${parentName}, which ${blocked ? 'waits blocked on it' : 'it blocks, though Paperclip did not set it to blocked: set it yourself'}. When the board marks ${made.identifier} done, check the result, record it, and close ${parentName}.`);
+  process.exit(0);
+}
 
 let found;
 if (making) {
@@ -63,7 +86,7 @@ if (!runId) {
 }
 if (making) {
   const claimed = await checkoutCard({ api, token, issueId: found.id, agentId, runId });
-  console.log(`Made ${found.identifier} "${title}", assigned to you${claimed ? ' and in progress' : ' (still in backlog: the checkout did not go through)'}. Paperclip run ${runId} records the rest of this turn on it, and $PAPERCLIP_RUN_ID holds it from your next command on. Before the turn ends, leave ${found.identifier} done, in_review, blocked (with your question for the board as a comment), or in backlog.`);
+  console.log(`Made ${found.identifier} "${title}", assigned to you${claimed ? ' and in progress' : ' (still in backlog: the checkout did not go through)'}. Paperclip run ${runId} records the rest of this turn on it, and $PAPERCLIP_RUN_ID holds it from your next command on. Before the turn ends, leave ${found.identifier} done, in_review, blocked (on a teammate's card, or on a card for the board: --board), or in backlog.`);
 } else {
   console.log(`Paperclip run ${runId} now records the rest of this turn, on ${found.identifier}, and $PAPERCLIP_RUN_ID holds it from your next command on.`);
 }
