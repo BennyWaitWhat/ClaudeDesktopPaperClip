@@ -12,7 +12,7 @@
 //   node desktop-turn.mjs --api <Paperclip URL> --instance <Paperclip instance folder> [--chief <agent id>]
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { changedInstructions, currentTurn, endTurnRun, HELLO_ENV, namedCard, openCards, openCardsText, openTurnRun, turnsDir } from '../desktop-turn.mjs';
+import { changedInstructions, currentTurn, endTurnRun, HELLO_ENV, namedCard, openCards, openCardsText, openTurnRun, turnPromptOrigin, turnsDir } from '../desktop-turn.mjs';
 import { agentKey, conversationAgent, hookArgs, hookInput, insidePaperclipRun, paperclipCall } from '../paperclip-access.mjs';
 import { inboxText, takeInbox } from '../paperclip-wakes.mjs';
 
@@ -28,9 +28,12 @@ if (!input?.session_id || !/^[\w-]+$/.test(input.session_id)) process.exit(0);
 const dir = turnsDir(instance);
 
 if (input.hook_event_name === 'Stop') {
-  // Once per turn (Claude Code sets stop_hook_active on the stop that follows), and never for the hello.
+  // Once per turn (Claude Code sets stop_hook_active on the stop that follows), never for the hello, and only when the
+  // board or a teammate started the turn: a background notice (a finished task, an artifact subscription) asked for no
+  // work, and pressing it for a card kept a stopped agent going (Inbox Coordinator, 2026-10-15).
   const turn = currentTurn(dir, input.session_id);
-  if (turn && !turn.issueId && !turn.done && !input.stop_hook_active && process.env[HELLO_ENV] !== '1') {
+  const origin = turnPromptOrigin(input.transcript_path);
+  if (turn && !turn.issueId && !turn.done && !input.stop_hook_active && process.env[HELLO_ENV] !== '1' && (origin === null || origin === 'human' || origin === 'peer')) {
     process.stdout.write(JSON.stringify({
       decision: 'block',
       reason: `This turn is on no Paperclip card. If the message asked for anything to be done, recorded, tracked or followed up, put it on a card now: ${NEW_CARD} (or ${tool} <CARD> for one of your open cards), put your draft, result or questions on it as a comment, and leave it done, in_review, or blocked (waiting on the board's answer). If the message was only chat or a quick question, end the turn as it is, without a card and without saying more.`,

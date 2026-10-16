@@ -35,8 +35,12 @@ The org folder's `.claude/settings.json` runs three hooks (`org-folder.mjs` puts
   `node hooks/paperclip-card.mjs --new "<title>" --body "<what was asked>"` makes the card, assigned to the agent,
   and the rest of the turn records on it, checked out (made in backlog, then claimed by the turn's own run, so
   Paperclip never wakes the agent for it). Questions for you go on the card as a comment, with the card blocked.
-- **Stop**: the turn's end ends its run. A turn about to end still on no card is stopped once first and asked to
-  put its work on a card; chat and quick answers end as they are.
+- **Stop**: the turn's end ends its run. A turn you or a teammate started that is about to end still on no card is
+  stopped once first and asked to put its work on a card; chat and quick answers end as they are, and so does a turn
+  a background notice started (a finished task, an artifact subscription). A turn stopped in Claude Desktop runs no
+  Stop hook, so its run ends once the transcript stays quiet for 30 seconds after the interrupt; a turn whose Stop
+  hook did not run for another reason ends 2 minutes after the agent's last answer. Until then Paperclip shows the
+  agent working.
 - **PreToolUse** (`hooks/paperclip-allow.mjs`, every tool): Claude Desktop never imports a conversation in bypass
   mode (it makes it "accept edits"), so most tools would ask first, including while you are away. The agent's
   Paperclip **Skip permissions** switch decides instead: on (Paperclip's default for Claude agents, and how

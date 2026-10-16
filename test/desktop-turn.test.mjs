@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { doneFile, readNewLines, recordDesktopTurn, sessionFile, turnFile, turnsDir } from '../desktop-turn.mjs';
+import { doneFile, quietEnding, readNewLines, recordDesktopTurn, sessionFile, turnFile, turnsDir } from '../desktop-turn.mjs';
 
 const HOOK = fileURLToPath(new URL('../hooks/desktop-turn.mjs', import.meta.url));
 const tmp = (name) => fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`));
@@ -63,6 +63,54 @@ test('an interrupted turn (no Stop) ends when the same conversation starts its n
   const result = await running;
   assert.equal(result.exitCode, 0);
   assert.equal(result.summary, 'Half done');
+});
+
+test('a turn stopped in Claude Desktop runs no Stop hook: its run ends once the transcript stays quiet after the interrupt', async () => {
+  const dir = tmp('turns');
+  const transcript = path.join(tmp('conv'), 'conv.jsonl');
+  fs.writeFileSync(transcript, '');
+  fs.writeFileSync(turnFile(dir, 'run-s'), JSON.stringify({ runId: 'run-s', sessionId: 'conv', transcript, offset: 0 }));
+  fs.appendFileSync(transcript, line({ type: 'user', uuid: 'u1', message: { role: 'user', content: 'Republish the page' } }));
+  fs.appendFileSync(transcript, line(assistant('m1', 'Publishing.', { input_tokens: 4, output_tokens: 2 }, { message: { id: 'm1', role: 'assistant', model: 'claude-haiku-5-5', content: [{ type: 'text', text: 'Publishing.' }], stop_reason: 'tool_use', usage: { input_tokens: 4, output_tokens: 2 } } })));
+  fs.appendFileSync(transcript, line({ type: 'user', uuid: 'u2', message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user for tool use]' }] } }));
+  let settled = false;
+  const running = recordDesktopTurn(ctxFor('run-s', []), { dir, pollMs: 20, stoppedQuietMs: 250 }).then((r) => { settled = true; return r; });
+  await sleep(120);
+  // Something more arrives (a task notification continues the turn): not quiet yet, and the newest entry is no interrupt.
+  fs.appendFileSync(transcript, line({ type: 'user', uuid: 'u3', turnOrigin: 'task_notification', message: { role: 'user', content: '<task-notification>subscriptions paused</task-notification>' } }));
+  await sleep(300);
+  assert.equal(settled, false, 'a turn that goes on keeps its run');
+  fs.appendFileSync(transcript, line({ type: 'user', uuid: 'u4', message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user]' }] } }));
+  const result = await running;
+  assert.equal(result.exitCode, 0);
+  assert.match(result.summary, /^Stopped in Claude Desktop\. Publishing\./);
+  assert.ok(!fs.existsSync(turnFile(dir, 'run-s')), 'its files are cleaned up');
+});
+
+test("a turn whose Stop hook never ran ends after the agent's last answer stays quiet; a tool still running keeps it open", async () => {
+  const dir = tmp('turns');
+  const transcript = path.join(tmp('conv'), 'conv.jsonl');
+  fs.writeFileSync(transcript, '');
+  fs.writeFileSync(turnFile(dir, 'run-q'), JSON.stringify({ runId: 'run-q', sessionId: 'conv', transcript, offset: 0 }));
+  const toolUse = { id: 'm1', role: 'assistant', model: 'claude-haiku-5-5', content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: {} }], stop_reason: 'tool_use', usage: { input_tokens: 1, output_tokens: 1 } };
+  fs.appendFileSync(transcript, line({ type: 'assistant', uuid: 'a-m1', message: toolUse }));
+  let settled = false;
+  const running = recordDesktopTurn(ctxFor('run-q', []), { dir, pollMs: 20, stoppedQuietMs: 100, endedQuietMs: 150 }).then((r) => { settled = true; return r; });
+  await sleep(400);
+  assert.equal(settled, false, 'a long tool call is quiet too, and still the turn');
+  fs.appendFileSync(transcript, line(assistant('m2', 'All 9 cards are made.', { input_tokens: 2, output_tokens: 3 })));
+  const result = await running;
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.summary, 'All 9 cards are made.');
+});
+
+test('quietEnding reads only the newest message: the interrupt marker, or the last answer', () => {
+  assert.equal(quietEnding({ type: 'user', message: { content: '[Request interrupted by user]' } }), 'stopped');
+  assert.equal(quietEnding({ type: 'user', message: { content: [{ type: 'text', text: '[Request interrupted by user for tool use]' }] } }), 'stopped');
+  assert.equal(quietEnding({ type: 'user', message: { content: 'Benny wrote [Request interrupted by user] here' } }), null);
+  assert.equal(quietEnding({ type: 'assistant', message: { stop_reason: 'end_turn' } }), 'ended');
+  assert.equal(quietEnding({ type: 'assistant', message: { stop_reason: 'tool_use' } }), null);
+  assert.equal(quietEnding(null), null);
 });
 
 test('a Desktop-turn wake that no turn claims fails fast instead of starting Claude', async () => {

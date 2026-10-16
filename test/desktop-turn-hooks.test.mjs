@@ -290,6 +290,14 @@ test('work goes on cards: a turn on no card is told so with its open cards, and 
     assert.equal((await hook({ ...stop, stop_hook_active: true })).stdout, '', 'only once per turn');
     assert.ok(fs.existsSync(doneFile(dir, runId)), 'then the turn ends');
 
+    // A turn a background notice started is not pressed for a card: it ends at once.
+    await hook({ hook_event_name: 'UserPromptSubmit', prompt: '<task-notification>2 subscriptions paused</task-notification>' });
+    fs.appendFileSync(transcript, line({ type: 'user', turnOrigin: 'task_notification', message: { role: 'user', content: '<task-notification>2 subscriptions paused</task-notification>' } }));
+    const noticeRun = fs.readFileSync(runIdFile(dir, 'conv-5'), 'utf8');
+    assert.equal((await hook(stop)).stdout, '', 'a notice turn ends without a card');
+    assert.ok(fs.existsSync(doneFile(dir, noticeRun)), 'and its run ends');
+    fs.appendFileSync(transcript, line({ type: 'user', turnOrigin: 'human', message: { role: 'user', content: 'Log my lunch' } }));
+
     // The hello that makes the conversation is never stopped.
     await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'Reply with one short line of hello' }, { CLAUDE_DESKTOP_PAPERCLIP_HELLO: '1' });
     assert.equal((await hook(stop, { CLAUDE_DESKTOP_PAPERCLIP_HELLO: '1' })).stdout, '');

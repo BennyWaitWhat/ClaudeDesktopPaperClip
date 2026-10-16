@@ -243,8 +243,56 @@ export function turnOver(dir, runId, turn) {
 // Claude Code's stream output. Bookkeeping entries (file snapshots, hook attachments) stay out.
 const LOGGED = new Set(['user', 'assistant', 'system']);
 
+const textOf = (e) => {
+  const c = e?.message?.content;
+  return typeof c === 'string' ? c : Array.isArray(c) ? c.filter((p) => p?.type === 'text').map((p) => p.text).join('') : '';
+};
+const INTERRUPTED = /^\[Request interrupted by user[^\]]*\]$/;
+
+/**
+ * How a turn ended when no Stop hook says so, from the transcript's newest message: 'stopped' when it is Claude
+ * Code's interrupt marker (the Stop button, or another session's stop_session: no Stop hook runs then), 'ended' when
+ * it is the agent's own last answer, or null while the turn may still be going. A run left open looks like an agent
+ * still working in Paperclip (Benny, 2026-10-15: "one of the agents on paperclip still says its working").
+ */
+export function quietEnding(entry) {
+  if (entry?.type === 'user' && INTERRUPTED.test(textOf(entry).trim())) return 'stopped';
+  if (entry?.type === 'assistant' && entry.message?.stop_reason === 'end_turn') return 'ended';
+  return null;
+}
+
+/**
+ * Who started the conversation's current turn, from the transcript's newest prompt: 'human' (the board typing),
+ * 'peer' (a teammate's message), 'task_notification' (a background task or an artifact subscription reporting in),
+ * or null when the transcript does not say.
+ */
+export function turnPromptOrigin(transcript, tailBytes = 512 * 1024) {
+  let text = '';
+  let fd;
+  try {
+    fd = fs.openSync(transcript, 'r');
+    const size = fs.fstatSync(fd).size;
+    const start = Math.max(0, size - tailBytes);
+    const buf = Buffer.alloc(size - start);
+    fs.readSync(fd, buf, 0, buf.length, start);
+    text = buf.toString('utf8');
+  } catch {
+    return null;
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+  const lines = text.split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (!lines[i].includes('"turnOrigin"')) continue;
+    let e;
+    try { e = JSON.parse(lines[i]); } catch { continue; }
+    if (e.type === 'user' && typeof e.turnOrigin === 'string' && !e.isCompactSummary) return e.turnOrigin;
+  }
+  return null;
+}
+
 /** Record one Desktop turn into this run. Returns Paperclip's adapter result. */
-export async function recordDesktopTurn(ctx, { dir, waitForTurnMs = 60_000, pollMs = 500, maxTurnMs = 6 * 60 * 60_000 } = {}) {
+export async function recordDesktopTurn(ctx, { dir, waitForTurnMs = 60_000, pollMs = 500, maxTurnMs = 6 * 60 * 60_000, stoppedQuietMs = 30_000, endedQuietMs = 120_000 } = {}) {
   const note = (line) => ctx.onLog('stdout', `[desktop] ${line}\n`);
   const stopped = { exitCode: null, signal: 'SIGTERM', timedOut: false, errorMessage: 'Cancelled in Paperclip; the turn itself goes on in Claude Desktop.' };
 
@@ -262,13 +310,17 @@ export async function recordDesktopTurn(ctx, { dir, waitForTurnMs = 60_000, poll
   await note(`${ctx.agent?.name ?? 'The agent'}'s turn in Claude Desktop (conversation ${turn.sessionId}).`);
   let offset = Number(turn.offset) || 0;
   const entries = [];
+  let newest = null; // the transcript's newest message (user or assistant)
+  let grewAt = Date.now();
   const drain = async () => {
     const next = readNewLines(turn.transcript, offset);
     offset = next.offset;
+    if (next.lines.length) grewAt = Date.now();
     for (const line of next.lines) {
       let e;
       try { e = JSON.parse(line); } catch { continue; }
       entries.push(e);
+      if (e.type === 'user' || e.type === 'assistant') newest = e;
       if (LOGGED.has(e.type)) await ctx.onLog('stdout', `${line}\n`);
     }
   };
@@ -280,6 +332,8 @@ export async function recordDesktopTurn(ctx, { dir, waitForTurnMs = 60_000, poll
     if (turnOver(dir, ctx.runId, turn)) { await drain(); break; }
     if (ctx.signal?.aborted) { outcome = 'cancelled'; break; }
     if (Date.now() - started > maxTurnMs) { outcome = 'timed out'; break; }
+    const ending = quietEnding(newest);
+    if (ending && Date.now() - grewAt > (ending === 'stopped' ? stoppedQuietMs : endedQuietMs)) { outcome = ending === 'stopped' ? 'stopped' : 'ended quietly'; break; }
     await sleep(pollMs);
   }
 
@@ -287,6 +341,8 @@ export async function recordDesktopTurn(ctx, { dir, waitForTurnMs = 60_000, poll
   const { summary, usage, model } = turnResult(entries);
   if (outcome === 'cancelled') return { ...stopped, usage, model: model ?? undefined, provider: 'anthropic', billingType: 'subscription', costUsd: 0 };
   if (outcome === 'timed out') await note('Still going after the longest a turn is recorded for; the run ends here, the turn goes on in Claude Desktop.');
+  if (outcome === 'stopped') await note('The turn was stopped in Claude Desktop; the run ends with it.');
+  if (outcome === 'ended quietly') await note('The turn ended without its Stop hook; the run ends with it.');
   return {
     exitCode: 0,
     signal: null,
@@ -296,6 +352,6 @@ export async function recordDesktopTurn(ctx, { dir, waitForTurnMs = 60_000, poll
     model: model ?? undefined,
     billingType: 'subscription',
     costUsd: 0,
-    summary: summary.slice(0, 4000),
+    summary: (outcome === 'stopped' ? `Stopped in Claude Desktop.${summary ? ` ${summary}` : ''}` : summary).slice(0, 4000),
   };
 }
