@@ -17,7 +17,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { readInstructions, removeOtherAgentFiles, skipsPermissions, syncSkills, writeAgentFile } from './agent-files.mjs';
+import { checksBoardSteps, readInstructions, removeOtherAgentFiles, skipsPermissions, syncSkills, writeAgentFile } from './agent-files.mjs';
 import { windowsUserEnv } from './desktop.mjs';
 import { readOrg, updateOrg } from './desktop-orgs.mjs';
 import { HELLO_ENV } from './desktop-turn.mjs';
@@ -127,8 +127,9 @@ export async function syncOrg({ api, instance, companyId, node = process.execPat
 
   const wrote = [];
   const slugs = new Map();
+  const checkers = team.filter(checksBoardSteps).map((a) => a.name);
   for (const agent of team) {
-    const file = await writeAgentFile({ folder, agent, org, instructions: await readInstructions(agent) });
+    const file = await writeAgentFile({ folder, agent, org, checkers, instructions: await readInstructions(agent) });
     slugs.set(agent.id, file.slug);
     if (file.changed) wrote.push(path.relative(folder, file.file));
   }

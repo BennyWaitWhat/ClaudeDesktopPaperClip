@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { agentMarkdown, agentSlug, bundledSkillDir, readInstructions, syncSkills, writeAgentFile } from '../agent-files.mjs';
+import { agentMarkdown, agentSlug, bundledSkillDir, checksBoardSteps, readInstructions, syncSkills, writeAgentFile } from '../agent-files.mjs';
 
 const tmp = (name) => fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`));
 const cashier = { id: 'a1b2c3d4-0000-4000-8000-000000000001', name: 'Cashier', title: 'Runs the till', adapterConfig: { model: 'claude-haiku-5-5', effort: 'medium' } };
@@ -27,6 +27,13 @@ test("an agent file: its Paperclip model, effort, Skip permissions and id up top
   assert.match(body, /paperclip-card\.mjs" --new "<short title>"/);
   assert.match(body, /paperclip-card\.mjs" --board "<Verb>: <what>"/, 'a step only the board can do gets its own card');
   assert.match(body, /never mark your card done while a card for the board under it is open/);
+  assert.match(body, /Only the board marks the board's card done\. Once it is closed, check the result/, 'no checkers: only the board closes its cards');
+  const checked = agentMarkdown({ agent: cashier, slug: 'cashier', org: 'Lemonade Stand', checkers: ['Chief of Staff', 'Tracker'], instructions: '' });
+  assert.match(checked, /or when Chief of Staff or Tracker has checked that the step is done/);
+  assert.match(checked, /paperclip-card\.mjs" --checked <CARD> "<what you saw, and when>"\. Nobody else closes it\./);
+  assert.equal(checksBoardSteps({ adapterConfig: { checksBoardSteps: true } }), true);
+  assert.equal(checksBoardSteps({ adapterConfig: { checksBoardSteps: 'yes' } }), false);
+  assert.equal(checksBoardSteps(undefined), false);
   assert.match(body, /You run the till\.\n$/);
   assert.doesNotMatch(agentMarkdown({ agent: { ...cashier, adapterConfig: {} }, slug: 'cashier', org: 'X', instructions: '' }), /^(model|effort):/m, 'nothing Paperclip does not set');
   assert.match(agentMarkdown({ agent: { ...cashier, adapterConfig: { dangerouslySkipPermissions: false } }, slug: 'cashier', org: 'X', instructions: '' }), /^paperclip-skip-permissions: false$/m, 'Skip permissions turned off in Paperclip');

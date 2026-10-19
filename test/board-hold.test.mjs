@@ -6,13 +6,16 @@ import { agentClosedCard, boardGuard, holdForBoard, openBoardBlockers } from '..
 const boardCard = (id, status = 'todo') => ({ id, identifier: `LEM-${id}`, title: `Send: order ${id}`, status, assigneeAgentId: null, assigneeUserId: 'local-board' });
 const agentCard = (id, status = 'todo') => ({ id, identifier: `LEM-${id}`, title: `Count ${id}`, status, assigneeAgentId: 'agent-2', assigneeUserId: null });
 
-async function fakePaperclip(cards) {
+async function fakePaperclip(cards, { agents = null, comments = {} } = {}) {
   const calls = [];
   const server = http.createServer(async (req, res) => {
     let body = '';
     for await (const chunk of req) body += chunk;
     calls.push({ method: req.method, url: req.url, body: body ? JSON.parse(body) : null });
     const send = (status, json) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(json)); };
+    if (agents && /^\/api\/companies\/[^/]+\/agents$/.test(req.url)) return send(200, agents);
+    const notes = req.url.match(/^\/api\/issues\/([^/]+)\/comments$/);
+    if (notes) return send(200, comments[notes[1]] ?? []);
     const id = decodeURIComponent(req.url.split('/').pop());
     const card = cards.get(id);
     if (!card) return send(404, { error: 'Issue not found' });
@@ -109,6 +112,38 @@ test("closes are handled in feed order: the board's card is open again before th
     const [board, own] = await Promise.all([guard(paperclip.api, closedBy('agent', 'c11')), guard(paperclip.api, closedBy('agent', 'c8'))]);
     assert.equal(board.reopened, true);
     assert.deepEqual(own, { held: true, card: 'LEM-8', waiting: ['LEM-11'] });
+  } finally {
+    paperclip.close();
+  }
+});
+
+test("a checker's close of a card for the board stands with its note; without one, or by anyone else, the card opens again", async () => {
+  const now = Date.parse('2026-10-19T20:00:00Z');
+  const chief = { id: 'agent-c', name: 'Chief of Staff', status: 'idle', adapterConfig: { checksBoardSteps: true } };
+  const tracker = { id: 'agent-t', name: 'Tracker', status: 'idle', adapterConfig: { checksBoardSteps: true } };
+  const writer = { id: 'agent-w', name: 'Writer', status: 'idle', adapterConfig: {} };
+  const note = (authorAgentId, body, minutesAgo = 1) => ({ authorAgentId, body, createdAt: new Date(now - minutesAgo * 60_000).toISOString() });
+  const closed = (n) => ({ ...boardCard(`c${n}`, 'done'), identifier: `LEM-${n}`, companyId: 'org-1' });
+  const cards = new Map(['1', '2', '3', '4'].map((n) => [`c${n}`, closed(n)]));
+  const paperclip = await fakePaperclip(cards, {
+    agents: [chief, tracker, writer],
+    comments: {
+      c1: [note('agent-t', 'Checked: the follow-up to Marcia Smith is in Sent, 10/19 3:52 PM.')],
+      c2: [note('agent-t', 'Sent, I think.')],
+      c3: [note('agent-w', 'Checked: the draft is staged in Gmail.')],
+      c4: [note('agent-t', 'Checked: in Sent.', 11)],
+    },
+  });
+  try {
+    assert.deepEqual(await holdForBoard(paperclip.api, 'c1', { actorId: 'agent-t', now }), { held: false, card: 'LEM-1', checkedBy: 'Tracker' });
+    assert.ok(!paperclip.calls.some((c) => c.method === 'PATCH'), "the checker's close stands");
+    for (const [id, actorId, why] of [['c2', 'agent-t', 'no "Checked:" note'], ['c3', 'agent-w', 'not a checker'], ['c4', 'agent-t', 'the note is older than ten minutes']]) {
+      assert.equal((await holdForBoard(paperclip.api, id, { actorId, now })).reopened, true, why);
+    }
+    const patches = paperclip.calls.filter((c) => c.method === 'PATCH');
+    assert.equal(patches.length, 3);
+    assert.equal(patches[0].body.status, 'todo');
+    assert.match(patches[0].body.comment, /^Open again: an agent closed this without a check\. A card for the board closes when the board marks it done, or when Chief of Staff or Tracker has checked that the step is done and closes it with a note starting "Checked:" that says what they saw\.$/);
   } finally {
     paperclip.close();
   }

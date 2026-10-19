@@ -21,7 +21,7 @@ const line = (e) => `${JSON.stringify(e)}\n`;
  * A stand-in Paperclip: who am I, a key, the org, cards by short name, run status, wakeups (runs end at once with
  * `quick`; `folds` lists runs already going that the next wakes are folded into, as Paperclip does).
  */
-async function fakePaperclip({ quick = false, folds = [], cards = [] } = {}) {
+async function fakePaperclip({ quick = false, folds = [], cards = [], agents = [] } = {}) {
   const calls = [];
   const runs = new Map(folds.map((f) => [f.id, f.status]));
   const server = http.createServer(async (req, res) => {
@@ -30,7 +30,7 @@ async function fakePaperclip({ quick = false, folds = [], cards = [] } = {}) {
     calls.push({ method: req.method, url: req.url, auth: req.headers.authorization ?? null, runId: req.headers['x-paperclip-run-id'] ?? null, body: body ? JSON.parse(body) : null });
     const send = (status, json) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(json)); };
     const last = req.url.split('/').pop();
-    if (req.url === '/api/agents/me') return send(req.headers.authorization === 'Bearer pcp_key' ? 200 : 401, { id: 'agent-1', name: 'Cashier', companyId: 'org-1' });
+    if (req.url === '/api/agents/me') return send(req.headers.authorization === 'Bearer pcp_key' ? 200 : 401, { id: 'agent-1', name: 'Cashier', companyId: 'org-1', ...agents.find((a) => a.id === 'agent-1') });
     if (req.url === '/api/agents/agent-1/keys') return send(201, { id: 'key-1', token: 'pcp_key', createdAt: 'now' });
     if (req.url === '/api/companies/org-1') return send(200, { id: 'org-1', name: 'Lemonade Stand', issuePrefix: 'LEM' });
     if (req.method === 'GET' && req.url.startsWith('/api/companies/org-1/issues?')) return send(200, cards);
@@ -40,6 +40,8 @@ async function fakePaperclip({ quick = false, folds = [], cards = [] } = {}) {
     if (req.method === 'GET' && req.url === '/api/issues/card-8') return send(200, { id: 'card-8', identifier: 'LEM-8', status: 'done', responsibleUserId: 'local-board' });
     if (req.method === 'POST' && req.url === '/api/issues/card-8/children') return send(201, { id: 'card-11', identifier: 'LEM-11', parentId: 'card-8', ...JSON.parse(body) });
     if (req.method === 'PATCH' && req.url === '/api/issues/card-8') return send(200, { id: 'card-8', ...JSON.parse(body) });
+    if (req.method === 'GET' && req.url === '/api/issues/LEM-11') return send(200, { id: 'card-11', identifier: 'LEM-11', title: 'Send: the Taco Maco receipt', status: 'todo', assigneeUserId: 'local-board', assigneeAgentId: null, companyId: 'org-1', parentId: 'card-8' });
+    if (req.method === 'PATCH' && req.url === '/api/issues/card-11') return send(200, { id: 'card-11', identifier: 'LEM-11', ...JSON.parse(body) });
     if (req.url.startsWith('/api/issues/')) return send(404, { error: 'Issue not found' });
     if (req.url.startsWith('/api/heartbeat-runs/')) return send(200, { id: last, status: runs.get(last) ?? 'succeeded' });
     if (req.url === '/api/agents/agent-1/wakeup') {
@@ -344,6 +346,42 @@ test("paperclip-card --board gives the board a card in their inbox, under the tu
     assert.equal((await run(CARD_TOOL, ['--board'], { env })).code, 2, 'a card needs a title');
   } finally {
     paperclip.close();
+  }
+});
+
+test("paperclip-card --checked: an agent that checks the board's steps closes the board's card with what it saw; others are sent to the checkers", async () => {
+  const cashier = { id: 'agent-1', name: 'Cashier', adapterConfig: { checksBoardSteps: true } };
+  const instance = tmp('instance');
+  const dir = turnsDir(instance);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(turnFile(dir, 'run-8'), JSON.stringify({ runId: 'run-8', sessionId: 'conv-1', offset: 0, issueId: 'card-8' }));
+  fs.writeFileSync(sessionFile(dir, 'conv-1'), JSON.stringify({ runId: 'run-8' }));
+  const checker = await fakePaperclip({ agents: [cashier] });
+  try {
+    const env = { PAPERCLIP_API_URL: checker.api, PAPERCLIP_API_KEY: 'pcp_key', PAPERCLIP_AGENT_ID: 'agent-1', PAPERCLIP_INSTANCE_ROOT: instance, CLAUDE_DESKTOP_SESSION_ID: 'conv-1' };
+    const closed = await run(CARD_TOOL, ['--checked', 'LEM-11', 'The receipt email is in Sent, 10/19 3:52 PM'], { env });
+    assert.equal(closed.code, 0, closed.stderr);
+    const patch = checker.calls.find((c) => c.method === 'PATCH' && c.url === '/api/issues/card-11');
+    assert.deepEqual(patch.body, { status: 'done', comment: 'Checked: The receipt email is in Sent, 10/19 3:52 PM' });
+    assert.equal(patch.runId, 'run-8', "closed by the turn's run");
+    assert.match(closed.stdout, /^Closed LEM-11 "Send: the Taco Maco receipt" with your note \(Checked: The receipt email is in Sent, 10\/19 3:52 PM\)\./);
+
+    const own = await run(CARD_TOOL, ['--checked', 'LEM-8', 'Counted'], { env });
+    assert.equal(own.code, 1);
+    assert.match(own.stderr, /LEM-8 is not a card for the board: close your own cards the usual way\./);
+    assert.equal((await run(CARD_TOOL, ['--checked', 'LEM-11'], { env })).code, 2, 'a check says what was seen');
+  } finally {
+    checker.close();
+  }
+  const other = await fakePaperclip({ agents: [{ ...cashier, adapterConfig: {} }] });
+  try {
+    const env = { PAPERCLIP_API_URL: other.api, PAPERCLIP_API_KEY: 'pcp_key', PAPERCLIP_AGENT_ID: 'agent-1', PAPERCLIP_INSTANCE_ROOT: instance, CLAUDE_DESKTOP_SESSION_ID: 'conv-1' };
+    const refused = await run(CARD_TOOL, ['--checked', 'LEM-11', 'Sent'], { env });
+    assert.equal(refused.code, 1);
+    assert.match(refused.stderr, /^You don't check the board's steps: your notes \(Working from Claude Desktop\) name who does\. Tell one of them what you saw, and they check and close LEM-11\./);
+    assert.ok(!other.calls.some((c) => c.method === 'PATCH'), 'nothing closed');
+  } finally {
+    other.close();
   }
 });
 

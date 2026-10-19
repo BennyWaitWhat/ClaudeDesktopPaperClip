@@ -121,7 +121,8 @@ function watchOrg(companyId) {
     if (event?.type === 'activity.logged' && AGENT_CHANGES.has(event.payload?.action)) syncSoon(companyId, event.payload.action);
     holdForBoard(api(), event)
       .then((r) => {
-        if (r?.held) log('info', r.reopened ? `${r.card}, a card for the board, was closed by an agent: open again` : `${r.card} was closed while the board's ${r.waiting.join(', ')} is open: back to blocked`, { companyId });
+        if (r?.held) log('info', r.reopened ? `${r.card}, a card for the board, was closed by an agent without a check: open again` : `${r.card} was closed while the board's ${r.waiting.join(', ')} is open: back to blocked`, { companyId });
+        else if (r?.checkedBy) log('info', `${r.card}, a card for the board, was closed by ${r.checkedBy} as checked`, { companyId });
       })
       .catch((err) => log('warn', 'Holding a card for the board failed', { companyId, error: String(err) }));
   });

@@ -14,6 +14,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { checksBoardSteps } from './agent-files.mjs';
 import { paperclipCall } from './paperclip-access.mjs';
 
 /** What a turn did, for its run: its last reply, its token use (per API message), its model. */
@@ -130,6 +131,28 @@ export async function createBoardCard({ api, token, runId, parentId, title, desc
     blocked = moved.status === 200;
   }
   return { ...made.json, parent: { id: card.id, identifier: card.identifier ?? parentId, blocked } };
+}
+
+/**
+ * Close a card for the board once its step is checked (Benny, 2026-10-19: "arent there ppl who check if its done?"):
+ * done, with a "Checked:" note saying what was seen. Only an agent that checks the board's steps
+ * (adapterConfig.checksBoardSteps) may; the plugin opens anyone else's close again (board-hold.mjs). Returns the
+ * closed card, or { error } ('not a checker' when this agent is not one).
+ */
+export async function closeCheckedCard({ api, token, runId, agentId, text, seen }) {
+  const name = String(text ?? '').trim();
+  const got = await paperclipCall(api, `/api/issues/${encodeURIComponent(name)}`, { token, runId });
+  const card = got.json;
+  if (got.status !== 200 || !card?.id) return { error: `Paperclip has no card ${name}` };
+  if (!card.assigneeUserId || card.assigneeAgentId) return { error: `${card.identifier ?? name} is not a card for the board: close your own cards the usual way` };
+  if (['done', 'cancelled'].includes(card.status)) return { error: `${card.identifier ?? name} is already ${card.status}` };
+  // An agent's key shows its own settings, not its teammates'; its notes name the org's checkers.
+  const me = await paperclipCall(api, '/api/agents/me', { token });
+  if (me.status === 200 && me.json?.id === agentId && !checksBoardSteps(me.json)) return { error: 'not a checker' };
+  const note = `Checked: ${String(seen).replace(/^\s*Checked:\s*/i, '').trim()}`;
+  const closed = await paperclipCall(api, `/api/issues/${card.id}`, { method: 'PATCH', token, runId, body: { status: 'done', comment: note } });
+  if (closed.status !== 200 || closed.json?.status !== 'done') return { error: `Paperclip answered ${closed.status}: ${JSON.stringify(closed.json ?? {}).slice(0, 200)}` };
+  return { ...closed.json, identifier: card.identifier ?? name, title: card.title, note };
 }
 
 /** Claim a card for this run, the way Paperclip's agents do (checkout: in_progress, held by the run). */

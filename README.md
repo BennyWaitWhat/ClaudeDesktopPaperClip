@@ -41,9 +41,14 @@ The org folder's `.claude/settings.json` runs three hooks (`org-folder.mjs` puts
   the turn's card (or `--under <CARD>`) with Paperclip's sub-card blocker, and puts the agent's card back to
   blocked even when it was already closed: a card whose last step is yours is not finished. When you mark yours
   done, Paperclip's wake for the agent goes to its Desktop inbox, so its next turn checks the result, records it,
-  and closes its card. Only you close yours: Paperclip already stops an agent moving a blocked card while your card
-  is open, and the plugin (`board-hold.mjs`) undoes the closes it allows, opening your card again if an agent marks
-  it done, and putting an agent's card back to blocked if it was closed while yours is open, each with a comment.
+  and closes its card. Your card closes when you mark it done, or when an agent that checks your steps has checked
+  the step is done (the email in Sent, the form showing submitted, your words for an answer) and closes it with
+  what it saw: `node hooks/paperclip-card.mjs --checked <CARD> "<what you saw, and when>"`. An agent checks your
+  steps when its Paperclip settings carry `adapterConfig.checksBoardSteps: true` (`PATCH /api/agents/<id>` with
+  `{"adapterConfig":{"checksBoardSteps":true}}`), and every agent's notes name the org's checkers. Paperclip already
+  stops an agent moving a blocked card while your card is open, and the plugin (`board-hold.mjs`) undoes the closes
+  it allows: any other close of your card by an agent opens it again, and an agent's card closed while yours is open
+  goes back to blocked, each with a comment.
 - **Stop**: the turn's end ends its run. A turn you or a teammate started that is about to end still on no card is
   stopped once first and asked to put its work on a card; chat and quick answers end as they are, and so does a turn
   a background notice started (a finished task, an artifact subscription). A turn stopped in Claude Desktop runs no

@@ -20,13 +20,16 @@ export function agentSlug(name) {
 }
 
 /** How an agent works from Claude Desktop: the first part of every agent's system prompt. */
-export function desktopNotes({ name, org, cardTool = CARD_TOOL }) {
+export function desktopNotes({ name, org, checkers = [], cardTool = CARD_TOOL }) {
+  const closing = checkers.length
+    ? `The board's card closes when the board marks it done, or when ${checkers.join(' or ')} has checked that the step is done (the email in Sent, the form showing submitted, the board's own words for an answer or a decision) and closes it with what they saw: node "${forward(cardTool)}" --checked <CARD> "<what you saw, and when>". Nobody else closes it.`
+    : "Only the board marks the board's card done.";
   return `## Working from Claude Desktop
 
 You are ${name}, an agent in the Paperclip org ${org}. You live in one Claude Desktop conversation, where the board (Benny) and the other agents talk to you. Paperclip keeps the team's cards and records; it never starts your work.
 - Every turn you take is recorded as a Paperclip run, and $PAPERCLIP_RUN_ID always holds the current one. Make Paperclip API calls from the Bash tool (it has your Paperclip environment; PowerShell does not), with "Authorization: Bearer $PAPERCLIP_API_KEY" and "X-Paperclip-Run-Id: $PAPERCLIP_RUN_ID" (double quotes, so the shell fills them in). You don't run in Paperclip heartbeats: skip what your skills say about heartbeats and inbox polling.
 - Work goes on cards, so Paperclip shows what the team is doing. When the board or a teammate asks for anything to be done, recorded, tracked or followed up, put it on a card before you start: continue your card for it, or make one with node "${forward(cardTool)}" --new "<short title>" --body "<what was asked>" (assigned to you and in progress; the rest of the turn records on it). Your drafts and results go on the card as comments. Only chat and quick answers need no card.
-- A step only the board can do (answer a question, make a decision, send, submit, book, sign in, attach a file) gets a card of its own, assigned to the board so it is in their Paperclip inbox: node "${forward(cardTool)}" --board "<Verb>: <what>" --body "<exactly what to do, and where, with links>" (under the turn's card, or --under <CARD>). One card per step, its title starting with the verb (Send, Submit, Book, Answer, Decide). Your card waits blocked on it: never mark your card done while a card for the board under it is open. When the board marks theirs done, check the result (the email is in Sent, the form shows submitted), record it, and close yours.
+- A step only the board can do (answer a question, make a decision, send, submit, book, sign in, attach a file) gets a card of its own, assigned to the board so it is in their Paperclip inbox: node "${forward(cardTool)}" --board "<Verb>: <what>" --body "<exactly what to do, and where, with links>" (under the turn's card, or --under <CARD>). One card per step, its title starting with the verb (Send, Submit, Book, Answer, Decide). Your card waits blocked on it: never mark your card done while a card for the board under it is open. ${closing} Once it is closed, check the result, record it, and close yours.
 - A run can comment on and update its own card freely, and up to 20 other cards. A turn whose message names a card already runs on that card. To work on a different card, first leave the current one done, in_review, blocked, or in backlog, then run: node "${forward(cardTool)}" <CARD> (it ends the run so far and opens one on that card).
 - Your team, and each member's Desktop conversation, are in .claude/paperclip-team.md. Handing work to one of them: create the card for them in backlog, assigned to them, then send their Desktop conversation a message that names the card (SendMessage, to their conversation's local_ id in that file). Never leave a card waiting in todo: Paperclip treats todo as work it should start.
 - End every turn with each card you touched done, in_review (with a reviewer), blocked (on a teammate's card or a card for the board), or back in backlog; never todo or in_progress.
@@ -35,6 +38,13 @@ You are ${name}, an agent in the Paperclip org ${org}. You live in one Claude De
 }
 
 const yaml = (value) => JSON.stringify(String(value));
+
+/**
+ * True for an agent that checks the board's steps (adapterConfig.checksBoardSteps): it may close a card for the board
+ * once it has checked the step is done, with a "Checked:" note saying what it saw (board-hold.mjs). Benny, 2026-10-19:
+ * "arent there ppl who check if its done?"
+ */
+export const checksBoardSteps = (agent) => agent?.adapterConfig?.checksBoardSteps === true;
 
 /** Paperclip's "Skip permissions" switch for a Claude agent (on unless turned off, as in Paperclip's own Claude type). */
 export const skipsPermissions = (agent) => agent?.adapterConfig?.dangerouslySkipPermissions !== false;
@@ -59,7 +69,7 @@ export function desktopTools(agent) {
  * The agent file's text: frontmatter (name, description, model, effort, tools, Skip permissions, Paperclip id), then
  * the system prompt.
  */
-export function agentMarkdown({ agent, slug, org, instructions }) {
+export function agentMarkdown({ agent, slug, org, checkers, instructions }) {
   const name = String(agent?.name ?? 'Agent').replace(/[\r\n]+/g, ' ').trim() || 'Agent';
   const role = [agent?.title, agent?.role && agent.role !== 'general' ? agent.role : null].filter(Boolean)[0];
   const config = agent?.adapterConfig ?? {};
@@ -73,7 +83,7 @@ export function agentMarkdown({ agent, slug, org, instructions }) {
     `paperclip-skip-permissions: ${skipsPermissions(agent)}`,
     `paperclip-agent-id: ${agent.id}`,
   ].filter(Boolean);
-  const prompt = [desktopNotes({ name, org }), String(instructions ?? '').trim()].filter(Boolean).join('\n\n');
+  const prompt = [desktopNotes({ name, org, checkers }), String(instructions ?? '').trim()].filter(Boolean).join('\n\n');
   return `---\n${front.join('\n')}\n---\n\n${prompt}\n`;
 }
 
@@ -90,7 +100,7 @@ const owner = (text) => text.match(/^paperclip-agent-id:\s*(\S+)\s*$/m)?.[1] ?? 
  * Write the agent's file in `folder`/.claude/agents, under its own name unless that file is someone else's (then
  * <name>-<id>). A renamed agent's old file goes. Returns { slug, file, hash, changed }.
  */
-export async function writeAgentFile({ folder, agent, org, instructions }) {
+export async function writeAgentFile({ folder, agent, org, checkers, instructions }) {
   const dir = path.join(folder, '.claude', 'agents');
   const base = agentSlug(agent.name);
   let slug = base;
@@ -100,7 +110,7 @@ export async function writeAgentFile({ folder, agent, org, instructions }) {
     if (existing === null || owner(existing) === agent.id) break;
   }
   const file = path.join(dir, `${slug}.md`);
-  const markdown = agentMarkdown({ agent, slug, org, instructions });
+  const markdown = agentMarkdown({ agent, slug, org, checkers, instructions });
   const changed = (await fsp.readFile(file, 'utf8').catch(() => null)) !== markdown;
   if (changed) {
     await fsp.mkdir(dir, { recursive: true });
