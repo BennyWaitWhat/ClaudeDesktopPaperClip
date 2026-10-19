@@ -7,6 +7,7 @@ import { definePlugin, runWorker } from '@paperclipai/plugin-sdk';
 import { desktopClaudeCode, handOffWhenQuiet, openInDesktop, windowsUserEnv } from '../desktop.mjs';
 import { desktopOrgs, isDesktopOrg, pluginKeeps, readOrg, REHEARSAL_ORG, switchOrg } from '../desktop-orgs.mjs';
 import { ALWAYS_TOOLS, desktopTools } from '../agent-files.mjs';
+import { boardGuard } from '../board-hold.mjs';
 import { keepSignInFresh } from '../claude-sign-in.mjs';
 import { claudeTeam, markHandedOff, noteNewCard, paperclipApi, paperclipInstance, syncOrg } from '../org-sync.mjs';
 import { paperclipCall } from '../paperclip-access.mjs';
@@ -102,13 +103,14 @@ function queueHandOff(companyId, folder, { agentId, name, sessionId }) {
 }
 
 // Paperclip's live activity feed, per org on Claude Desktop: hires and agent changes (a hire announces nothing else
-// to plugins).
+// to plugins), and cards an agent closes before the board has done its step (board-hold.mjs).
 const AGENT_CHANGES = new Set([
   'agent.hire_created', 'agent.created', 'agent.approved', 'agent.updated', 'agent.terminated', 'agent.deleted', 'agent.config_rolled_back',
   'agent.instructions_path_updated', 'agent.instructions_bundle_updated', 'agent.instructions_file_updated', 'agent.instructions_file_deleted',
   'agent.skills_synced', 'approval.approved',
 ]);
 const feeds = new Map();
+const holdForBoard = boardGuard();
 function watchOrg(companyId) {
   if (!options.watch || feeds.has(companyId) || typeof WebSocket !== 'function' || !pluginKeeps(readOrg(options.instance, companyId))) return;
   const feed = new WebSocket(`${api().replace(/^http/, 'ws')}/api/companies/${companyId}/events/ws`);
@@ -117,6 +119,11 @@ function watchOrg(companyId) {
     let event = null;
     try { event = JSON.parse(String(m.data)); } catch { return; }
     if (event?.type === 'activity.logged' && AGENT_CHANGES.has(event.payload?.action)) syncSoon(companyId, event.payload.action);
+    holdForBoard(api(), event)
+      .then((r) => {
+        if (r?.held) log('info', r.reopened ? `${r.card}, a card for the board, was closed by an agent: open again` : `${r.card} was closed while the board's ${r.waiting.join(', ')} is open: back to blocked`, { companyId });
+      })
+      .catch((err) => log('warn', 'Holding a card for the board failed', { companyId, error: String(err) }));
   });
   feed.addEventListener('close', () => { if (feeds.get(companyId) === feed) feeds.delete(companyId); });
   feed.addEventListener('error', () => {});
