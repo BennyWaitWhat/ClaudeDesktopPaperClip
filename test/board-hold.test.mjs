@@ -15,7 +15,7 @@ async function fakePaperclip(cards, { agents = null, comments = {} } = {}) {
     const send = (status, json) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(json)); };
     if (agents && /^\/api\/companies\/[^/]+\/agents$/.test(req.url)) return send(200, agents);
     const notes = req.url.match(/^\/api\/issues\/([^/]+)\/comments$/);
-    if (notes) return send(200, comments[notes[1]] ?? []);
+    if (notes) { const listed = comments[notes[1]]; return send(200, (typeof listed === 'function' ? listed() : listed) ?? []); }
     const id = decodeURIComponent(req.url.split('/').pop());
     const card = cards.get(id);
     if (!card) return send(404, { error: 'Issue not found' });
@@ -138,12 +138,28 @@ test("a checker's close of a card for the board stands with its note; without on
     assert.deepEqual(await holdForBoard(paperclip.api, 'c1', { actorId: 'agent-t', now }), { held: false, card: 'LEM-1', checkedBy: 'Tracker' });
     assert.ok(!paperclip.calls.some((c) => c.method === 'PATCH'), "the checker's close stands");
     for (const [id, actorId, why] of [['c2', 'agent-t', 'no "Checked:" note'], ['c3', 'agent-w', 'not a checker'], ['c4', 'agent-t', 'the note is older than ten minutes']]) {
-      assert.equal((await holdForBoard(paperclip.api, id, { actorId, now })).reopened, true, why);
+      assert.equal((await holdForBoard(paperclip.api, id, { actorId, now, noteWaits: [0, 5] })).reopened, true, why);
     }
     const patches = paperclip.calls.filter((c) => c.method === 'PATCH');
     assert.equal(patches.length, 3);
     assert.equal(patches[0].body.status, 'todo');
     assert.match(patches[0].body.comment, /^Open again: an agent closed this without a check\. A card for the board closes when the board marks it done, or when Chief of Staff or Tracker has checked that the step is done and closes it with a note starting "Checked:" that says what they saw\.$/);
+  } finally {
+    paperclip.close();
+  }
+});
+
+test("a checker's note that can be read only a moment after the close still counts", async () => {
+  const now = Date.parse('2026-10-19T20:11:32Z');
+  const tracker = { id: 'agent-t', name: 'Tracker', status: 'idle', adapterConfig: { checksBoardSteps: true } };
+  const cards = new Map([['c77', { ...boardCard('c77', 'done'), identifier: 'LEM-77', companyId: 'org-1' }]]);
+  let looks = 0;
+  const late = () => (++looks < 3 ? [] : [{ authorAgentId: 'agent-t', body: 'Checked: the reply is in the LinkedIn thread, 10/19 3:50 PM.', createdAt: '2026-10-19T20:11:31Z' }]);
+  const paperclip = await fakePaperclip(cards, { agents: [tracker], comments: { c77: late } });
+  try {
+    assert.deepEqual(await holdForBoard(paperclip.api, 'c77', { actorId: 'agent-t', now, noteWaits: [0, 5, 5, 5] }), { held: false, card: 'LEM-77', checkedBy: 'Tracker' });
+    assert.equal(looks, 3, 'looked again until the note showed up');
+    assert.ok(!paperclip.calls.some((c) => c.method === 'PATCH'));
   } finally {
     paperclip.close();
   }

@@ -15,6 +15,10 @@ const CLOSED = new Set(['done', 'cancelled']);
 // The checker's note: on the card, by the agent that closed it, written with the close or just before.
 const CHECKED = /^\s*Checked:\s*\S/;
 const NOTE_MS = 10 * 60_000;
+// Paperclip logs a close about 0.2 s before the note sent with it can be read (CAR-77, 2026-10-19: opened again
+// with its note on it), so a checker's close is looked at again for a few seconds before it counts as unchecked.
+const NOTE_WAITS = [0, 500, 1500, 3000];
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** True for a feed event that says an agent just moved a card to done. */
 export const agentClosedCard = (event) =>
@@ -44,10 +48,11 @@ async function leftCheckedNote(api, issueId, agentId, now) {
  * Undo a close that skipped the check. A card for the board stays closed when a checker closed it with its note, and
  * otherwise opens again (todo); an agent's card with an open card for the board under it goes back to blocked, its
  * blockers sent again with the comment so Paperclip reads the comment as part of a dependency change and does not move
- * the card to todo. actorId is the agent that closed it; quiet leaves the comment out.
+ * the card to todo. actorId is the agent that closed it; quiet leaves the comment out; noteWaits are the pauses
+ * (ms) before each look for a checker's note.
  * Returns { held, card, waiting?, reopened? }, { held: false, card, checkedBy } or { held: false, why }.
  */
-export async function holdForBoard(api, issueId, { quiet = false, actorId = null, now = Date.now() } = {}) {
+export async function holdForBoard(api, issueId, { quiet = false, actorId = null, now = Date.now(), noteWaits = NOTE_WAITS } = {}) {
   const got = await paperclipCall(api, `/api/issues/${encodeURIComponent(issueId)}`);
   const issue = got.json;
   if (got.status !== 200 || !issue?.id) return { held: false, why: `Paperclip answered ${got.status}` };
@@ -55,7 +60,14 @@ export async function holdForBoard(api, issueId, { quiet = false, actorId = null
   if (boardsOwn(issue)) {
     const team = listOf((await paperclipCall(api, `/api/companies/${issue.companyId}/agents`)).json).filter((a) => a?.status !== 'terminated');
     const closer = team.find((a) => a.id === actorId);
-    if (checksBoardSteps(closer) && await leftCheckedNote(api, issue.id, closer.id, now)) return { held: false, card: issue.identifier, checkedBy: closer.name };
+    if (checksBoardSteps(closer)) {
+      for (const wait of noteWaits) {
+        if (wait) await sleep(wait);
+        if (await leftCheckedNote(api, issue.id, closer.id, now)) return { held: false, card: issue.identifier, checkedBy: closer.name };
+      }
+      const again = (await paperclipCall(api, `/api/issues/${issue.id}`)).json;
+      if (again?.status !== 'done') return { held: false, why: `it is ${again?.status ?? 'gone'}` };
+    }
     const checkers = team.filter(checksBoardSteps).map((a) => a.name);
     const comment = checkers.length
       ? `Open again: an agent closed this without a check. A card for the board closes when the board marks it done, or when ${checkers.join(' or ')} has checked that the step is done and closes it with a note starting "Checked:" that says what they saw.`
