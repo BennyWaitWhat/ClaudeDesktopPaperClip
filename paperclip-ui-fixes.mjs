@@ -11,10 +11,14 @@
 // (Benny, 2026-10-19: "no agents are working, but the progress column is spinning, why?"). A header icon now spins
 // only while its column has cards; a card's own icon is unchanged.
 //
+// Fixed files reach every browser at an address of their own (see patchIndexHtml): browsers keep Paperclip's files
+// for a year and in memory, so a fixed file under its old address can go on running in its old form.
+//
 //   node paperclip-ui-fixes.mjs            apply (prints what it did)
 //   node paperclip-ui-fixes.mjs --check    report only
 //   node paperclip-ui-fixes.mjs --restore  put Paperclip's original page back
 import { execFileSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -146,32 +150,54 @@ function kanbanChunkOf(assets) {
 }
 
 const MODULE_SCRIPT = /<script[^>]+type="module"[^>]+src="\/?(assets\/[^"]+\.js)"[^>]*><\/script>/;
+const FRESH_MARKER = '<!-- claude-desktop-paperclip:fresh -->';
+const STAMP = '?cdpc=';
+// The earlier way (2026-10-09 to 10-19): a script that downloaded the fixed files again once per browser and
+// reloaded. A browser holding the old file in memory ran it again after that reload; taken out wherever it is found.
 const REFRESH_MARKER = '<!-- claude-desktop-paperclip:refresh -->';
+
+/** index.html as Paperclip wrote it: everything patchIndexHtml (this version or an earlier one) put in is taken out. */
+export function unpatchIndexHtml(html) {
+  return html
+    .replace(new RegExp(`${esc(REFRESH_MARKER)}<script>[\\s\\S]*?</script>\\s*`), '')
+    .replace(new RegExp(`${esc(FRESH_MARKER)}<script type="importmap">[^<]*</script>\\s*`), '')
+    .replace(/<script([^>]*) data-cdpc-entry="([^"]+)"([^>]*)>[^<]*<\/script>/, '<script$1 src="$2"$3></script>')
+    .replace(new RegExp(`(<link rel="modulepreload"[^>]* href="[^"?]+)${esc(STAMP)}[\\w-]+"`, 'g'), '$1"');
+}
 
 /** The page's main bundle file (the script index.html loads). */
 function mainBundleOf(uiDist) {
-  const src = fs.readFileSync(path.join(uiDist, 'index.html'), 'utf8').match(MODULE_SCRIPT)?.[1];
+  const src = unpatchIndexHtml(fs.readFileSync(path.join(uiDist, 'index.html'), 'utf8')).match(MODULE_SCRIPT)?.[1];
   return src ? path.join(uiDist, src) : null;
 }
 
 /**
- * Paperclip serves its bundle and chunks as cacheable for a year, so a browser that loaded the page before a fix
- * keeps running the old copies. index.html is fetched fresh every time: a small script there downloads the fixed
- * files once per browser (bypassing the cache, which also refreshes it) and reloads the page once. `also` lists
- * fixed chunks besides the main bundle; a new `version` makes every browser do it again.
+ * Paperclip lets browsers keep its bundle and chunks for a year, and a browser also keeps a file it has loaded in
+ * memory, so a browser that had the page before a fix kept running the old file, even after a reload (Benny's
+ * Chrome, 2026-10-19: the board's header still spun after the fix and a reload). So each fixed file gets an address
+ * no browser has seen: its own address plus ?cdpc=<stamp>, the stamp taken from its fixed text. index.html, which is
+ * fetched fresh every time, carries an import map that sends every import of a fixed file to that address; the
+ * page's entry is loaded through the map, and preload links name the new address. A browser without import maps
+ * loads the plain addresses, as before. `fresh` is [{ file: '/assets/name.js', stamp }]; [] takes it all out.
  */
-export function patchIndexHtml(html, version = 'onboarding-offer-v1', also = []) {
-  const script = html.match(MODULE_SCRIPT);
-  if (!script) return { text: html, status: 'unrecognized', reason: 'index.html has no module script' };
-  const bundle = `/${script[1]}`;
-  const key = `claude-desktop-paperclip:${version}:${bundle}`;
-  const files = [bundle, ...also];
-  const load = files.length === 1
-    ? `fetch(${JSON.stringify(bundle)},{cache:"reload"}).then(r=>{if(!r.ok)return;`
-    : `Promise.all(${JSON.stringify(files)}.map(u=>fetch(u,{cache:"reload"}))).then(rs=>{if(rs.some(r=>!r.ok))return;`;
-  const refresh = `${REFRESH_MARKER}<script>(()=>{try{const k=${JSON.stringify(key)};if(localStorage.getItem(k))return;${load}localStorage.setItem(k,"1");location.reload()}).catch(()=>{})}catch{}})()</script>`;
-  const without = html.replace(new RegExp(`${esc(REFRESH_MARKER)}<script>[\\s\\S]*?</script>\\s*`), '');
-  const text = without.replace(MODULE_SCRIPT, (tag) => `${refresh}\n    ${tag}`);
+export function patchIndexHtml(html, fresh = []) {
+  const plain = unpatchIndexHtml(html);
+  const entry = plain.match(MODULE_SCRIPT);
+  if (!entry) return { text: html, status: 'unrecognized', reason: 'index.html has no module script' };
+  let text = plain;
+  if (fresh.length) {
+    const to = Object.fromEntries(fresh.map(({ file, stamp }) => [file, `${file}${STAMP}${stamp}`]));
+    const map = `${FRESH_MARKER}<script type="importmap">${JSON.stringify({ imports: to })}</script>\n    `;
+    const entryFile = `/${entry[1]}`;
+    // Through the map, so the entry and the chunks that import it share one copy.
+    const entryTag = to[entryFile]
+      ? entry[0].replace(/ src="([^"]+)"/, ' data-cdpc-entry="$1"').replace(/><\/script>$/, `>import ${JSON.stringify(entryFile)};</script>`)
+      : entry[0];
+    text = text.replace(entry[0], () => map + entryTag);
+    for (const [file, address] of Object.entries(to)) {
+      text = text.replace(new RegExp(`(<link rel="modulepreload"[^>]* href=")${esc(file)}"`), (_, head) => `${head}${address}"`);
+    }
+  }
   return { text, status: text === html ? 'already' : 'patched' };
 }
 
@@ -214,22 +240,27 @@ export function applyUiFixes({ uiDist = findUiDist(), check = false } = {}) {
     const bundle = patchMainBundle(main, chunks);
     const kanbanFile = kanbanChunkOf(assets);
     const kanban = kanbanFile ? patchKanbanHeaders(fs.readFileSync(kanbanFile, 'utf8')) : { status: 'unrecognized', reason: "the Tasks board's chunk was not found" };
-    const htmlFile = path.join(uiDist, 'index.html');
-    const boardFixed = kanban.status !== 'unrecognized';
-    const html = patchIndexHtml(fs.readFileSync(htmlFile, 'utf8'), boardFixed ? 'ui-fixes-v2' : 'onboarding-offer-v1', boardFixed ? [`/assets/${path.basename(kanbanFile)}`] : []);
     const report = (result, extra = {}) => ({ status: result.status, ...(result.reason ? { reason: result.reason } : {}), ...extra });
     const fixes = { onboarding: report(bundle), kanban: report(kanban, kanbanFile ? { file: kanbanFile } : {}) };
-    const all = [bundle, kanban];
-    if (check) return { status: [...all, html].some((r) => r.status === 'patched') ? 'needed' : all.some((r) => r.status === 'unrecognized') ? 'unrecognized' : 'already', file, fixes };
+    // The fixed files, each with the text the page serves once this run is done.
+    const fixed = [];
     for (const [result, target, name] of [[bundle, file, 'onboarding'], [kanban, kanbanFile, 'kanban']]) {
+      if (result.status === 'already') fixed.push([target, result.text]);
       if (result.status !== 'patched') continue;
-      if (parsesAsModule(result.text)) replaceFile(target, result.text);
+      if (check) fixed.push([target, result.text]);
+      else if (parsesAsModule(result.text)) { replaceFile(target, result.text); fixed.push([target, result.text]); }
       else fixes[name] = { status: 'unrecognized', reason: 'the patched file did not parse; left as it was' };
     }
-    if (html.status === 'patched') replaceFile(htmlFile, html.text);
-    const statuses = Object.values(fixes).map((f) => f.status);
-    const status = statuses.includes('patched') || html.status === 'patched' ? 'patched' : statuses.includes('unrecognized') ? 'unrecognized' : 'already';
-    const reason = Object.entries(fixes).filter(([, f]) => f.reason).map(([name, f]) => `${name}: ${f.reason}`).join('; ');
+    const fresh = fixed.map(([target, text]) => ({
+      file: `/${path.relative(uiDist, target).split(path.sep).join('/')}`,
+      stamp: crypto.createHash('sha256').update(text).digest('hex').slice(0, 10),
+    }));
+    const htmlFile = path.join(uiDist, 'index.html');
+    const html = patchIndexHtml(fs.readFileSync(htmlFile, 'utf8'), fresh);
+    if (!check && html.status === 'patched') replaceFile(htmlFile, html.text);
+    const statuses = [...Object.values(fixes).map((f) => f.status), html.status];
+    const status = statuses.includes('patched') ? (check ? 'needed' : 'patched') : statuses.includes('unrecognized') ? 'unrecognized' : 'already';
+    const reason = [...Object.entries(fixes), ['page', html]].filter(([, f]) => f.reason).map(([name, f]) => `${name}: ${f.reason}`).join('; ');
     return { status, file, ...(reason ? { reason } : {}), fixes };
   } catch (error) {
     return { status: 'error', reason: error.message };

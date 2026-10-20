@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
-import { KANBAN_MARKER, MARKER, patchIndexHtml, patchKanbanHeaders, patchMainBundle } from '../paperclip-ui-fixes.mjs';
+import { applyUiFixes, KANBAN_MARKER, MARKER, patchIndexHtml, patchKanbanHeaders, patchMainBundle, restoreUi, unpatchIndexHtml } from '../paperclip-ui-fixes.mjs';
 
 // Shaped like Paperclip's built page (2026.1005.0): the Dashboard takes openOnboarding from useDialogActions and
 // offers onboarding in an effect; the dialog hooks live in a shared chunk the main bundle imports under short names.
@@ -53,15 +57,39 @@ test('a page it does not recognize is left exactly as it was', () => {
   assert.equal(patchMainBundle(IMPORTS + DASHBOARD, []).status, 'unrecognized', 'no dialog chunk: no guess');
 });
 
-test('index.html gets a one-time refresh of the cached bundle, and only once', () => {
-  const html = '<head>\n    <script type="module" crossorigin src="/assets/index-ChaaJ8xT.js"></script>\n  </head>';
-  const first = patchIndexHtml(html);
-  assert.equal(first.status, 'patched');
-  assert.match(first.text, /fetch\("\/assets\/index-ChaaJ8xT\.js",\{cache:"reload"\}\)/);
-  assert.match(first.text, /claude-desktop-paperclip:onboarding-offer-v1:\/assets\/index-ChaaJ8xT\.js/);
-  assert.ok(first.text.indexOf('location.reload()') < first.text.indexOf('type="module"'), 'runs before the page loads its bundle');
-  assert.equal(patchIndexHtml(first.text).status, 'already');
-  assert.equal(patchIndexHtml(first.text).text, first.text);
+// Shaped like Paperclip's index.html (2026.1005.0), with the refresh script this file put there from 2026-10-09 to 10-19.
+const PAGE = '<head>\n    <script>(() => { /* theme */ })();</script>\n    <script type="module" crossorigin src="/assets/index-ChaaJ8xT.js"></script>\n    <link rel="modulepreload" crossorigin href="/assets/createLucideIcon-DNYM09J7.js">\n    <link rel="modulepreload" crossorigin href="/assets/RoutineRunVariablesDialog-wOU7aljJ.js">\n  </head>';
+const OLD_REFRESH = '<!-- claude-desktop-paperclip:refresh --><script>(()=>{try{const k="claude-desktop-paperclip:ui-fixes-v2:/assets/index-ChaaJ8xT.js";if(localStorage.getItem(k))return;location.reload()}catch{}})()</script>\n    ';
+const REFRESHED_PAGE = PAGE.replace('<script type="module"', () => `${OLD_REFRESH}<script type="module"`);
+
+test('index.html sends every import of a fixed file to an address no browser has kept', () => {
+  const fresh = [{ file: '/assets/index-ChaaJ8xT.js', stamp: 'aaaa111111' }, { file: '/assets/RoutineRunVariablesDialog-wOU7aljJ.js', stamp: 'bbbb222222' }];
+  const result = patchIndexHtml(REFRESHED_PAGE, fresh);
+  assert.equal(result.status, 'patched');
+  assert.ok(!result.text.includes('claude-desktop-paperclip:refresh'), 'the old reload-once script is gone');
+  const map = JSON.parse(result.text.match(/<script type="importmap">([^<]*)<\/script>/)[1]);
+  assert.deepEqual(map, { imports: {
+    '/assets/index-ChaaJ8xT.js': '/assets/index-ChaaJ8xT.js?cdpc=aaaa111111',
+    '/assets/RoutineRunVariablesDialog-wOU7aljJ.js': '/assets/RoutineRunVariablesDialog-wOU7aljJ.js?cdpc=bbbb222222',
+  } });
+  assert.ok(result.text.indexOf('type="importmap"') < result.text.indexOf('type="module"'), 'the map comes before any module loads');
+  assert.match(result.text, /<script type="module" crossorigin data-cdpc-entry="\/assets\/index-ChaaJ8xT\.js">import "\/assets\/index-ChaaJ8xT\.js";<\/script>/, 'the entry loads through the map');
+  assert.match(result.text, /href="\/assets\/RoutineRunVariablesDialog-wOU7aljJ\.js\?cdpc=bbbb222222"/, 'the fixed chunk is preloaded at its new address');
+  assert.match(result.text, /href="\/assets\/createLucideIcon-DNYM09J7\.js">/, 'other chunks keep theirs');
+
+  assert.equal(patchIndexHtml(result.text, fresh).status, 'already');
+  assert.equal(unpatchIndexHtml(result.text), PAGE, "taking it out gives back Paperclip's own page");
+  assert.equal(patchIndexHtml(result.text, []).text, PAGE);
+  const next = patchIndexHtml(result.text, [{ ...fresh[0], stamp: 'cccc333333' }]);
+  assert.equal(next.text.split('type="importmap"').length, 2, 'one map, the old one replaced');
+  assert.match(next.text, /<link rel="modulepreload" crossorigin href="\/assets\/RoutineRunVariablesDialog-wOU7aljJ\.js">/, 'a chunk no longer fixed goes back to its own address');
+});
+
+test('index.html keeps its own entry tag when only a chunk is fixed', () => {
+  const result = patchIndexHtml(PAGE, [{ file: '/assets/RoutineRunVariablesDialog-wOU7aljJ.js', stamp: 'bbbb222222' }]);
+  assert.equal(result.status, 'patched');
+  assert.match(result.text, /<script type="importmap">[^<]*<\/script>\n    <script type="module" crossorigin src="\/assets\/index-ChaaJ8xT\.js"><\/script>/);
+  assert.equal(patchIndexHtml('<head></head>', []).status, 'unrecognized');
 });
 
 // Shaped like Paperclip's Tasks board column (2026.1005.0): a folded column shows its count in its title, an open
@@ -96,13 +124,37 @@ test('a board it does not recognize is left exactly as it was', () => {
   assert.equal(result.text, changed);
 });
 
-test('index.html refreshes the fixed board chunk too, once per browser, under a new key', () => {
-  const html = '<head>\n    <script type="module" crossorigin src="/assets/index-ChaaJ8xT.js"></script>\n  </head>';
-  const v1 = patchIndexHtml(html).text;
-  const v2 = patchIndexHtml(v1, 'ui-fixes-v2', ['/assets/RoutineRunVariablesDialog-wOU7aljJ.js']);
-  assert.equal(v2.status, 'patched');
-  assert.match(v2.text, /Promise\.all\(\["\/assets\/index-ChaaJ8xT\.js","\/assets\/RoutineRunVariablesDialog-wOU7aljJ\.js"\]\.map/);
-  assert.match(v2.text, /claude-desktop-paperclip:ui-fixes-v2:\/assets\/index-ChaaJ8xT\.js/);
-  assert.equal(v2.text.split('<!-- claude-desktop-paperclip:refresh -->').length, 2, 'one refresh script, the old one replaced');
-  assert.equal(patchIndexHtml(v2.text, 'ui-fixes-v2', ['/assets/RoutineRunVariablesDialog-wOU7aljJ.js']).status, 'already');
+test('applying to an installed page fixes both files, stamps their addresses from their fixed text, and restores', () => {
+  const uiDist = fs.mkdtempSync(path.join(os.tmpdir(), 'ui-fixes-'));
+  try {
+    const page = PAGE.replaceAll('index-ChaaJ8xT', 'index-AAAA1111').replaceAll('RoutineRunVariablesDialog-wOU7aljJ', 'Board-BBBB2222');
+    const files = {
+      'index.html': page,
+      'assets/index-AAAA1111.js': IMPORTS + DASHBOARD,
+      'assets/heartbeats-AAAA1111.js': CHUNK.text,
+      'assets/Board-BBBB2222.js': BOARD,
+    };
+    fs.mkdirSync(path.join(uiDist, 'assets'));
+    for (const [name, text] of Object.entries(files)) fs.writeFileSync(path.join(uiDist, name), text);
+    const read = (name) => fs.readFileSync(path.join(uiDist, name), 'utf8');
+    const stamp = (name) => crypto.createHash('sha256').update(read(name)).digest('hex').slice(0, 10);
+
+    const first = applyUiFixes({ uiDist });
+    assert.equal(first.status, 'patched', JSON.stringify(first));
+    assert.deepEqual([first.fixes.onboarding.status, first.fixes.kanban.status], ['patched', 'patched']);
+    assert.ok(read('assets/index-AAAA1111.js').startsWith(MARKER));
+    assert.ok(read('assets/Board-BBBB2222.js').startsWith(KANBAN_MARKER));
+    const map = JSON.parse(read('index.html').match(/<script type="importmap">([^<]*)<\/script>/)[1]);
+    assert.deepEqual(map.imports, {
+      '/assets/index-AAAA1111.js': `/assets/index-AAAA1111.js?cdpc=${stamp('assets/index-AAAA1111.js')}`,
+      '/assets/Board-BBBB2222.js': `/assets/Board-BBBB2222.js?cdpc=${stamp('assets/Board-BBBB2222.js')}`,
+    });
+
+    assert.equal(applyUiFixes({ uiDist }).status, 'already');
+    assert.equal(applyUiFixes({ uiDist, check: true }).status, 'already');
+    assert.equal(restoreUi({ uiDist }).status, 'restored');
+    for (const [name, text] of Object.entries(files)) assert.equal(read(name), text, `${name} is Paperclip's own again`);
+  } finally {
+    fs.rmSync(uiDist, { recursive: true, force: true });
+  }
 });

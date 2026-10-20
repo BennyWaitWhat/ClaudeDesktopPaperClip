@@ -134,8 +134,10 @@ update that ships a new page gets the fix again. Paperclip's originals are kept 
 - **An empty In Progress column no longer spins.** Paperclip spins the in-progress icon wherever it appears, so the
   Tasks board's In Progress header spun with no card in it and no agent working. A board header icon now spins
   only while its column has cards; a card's own icon is unchanged.
-- Paperclip lets browsers keep its page for a year, so `index.html` (always fetched fresh) also gets a small
-  script that downloads the fixed page once per browser and reloads once.
+- Paperclip lets browsers keep its files for a year, and a browser also keeps a loaded file in memory, so a fixed
+  file under its old address could go on running in its old form, even after a reload. Each fixed file therefore
+  gets an address of its own (`?cdpc=` plus a stamp taken from its fixed text): `index.html`, which is always
+  fetched fresh, carries an import map that sends the page there. One reload after a fix picks it up in any browser.
 
 A page it does not recognize is left exactly as it was.
 
