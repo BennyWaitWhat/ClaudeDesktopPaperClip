@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { MARKER, patchIndexHtml, patchMainBundle } from '../paperclip-ui-fixes.mjs';
+import { KANBAN_MARKER, MARKER, patchIndexHtml, patchKanbanHeaders, patchMainBundle } from '../paperclip-ui-fixes.mjs';
 
 // Shaped like Paperclip's built page (2026.1005.0): the Dashboard takes openOnboarding from useDialogActions and
 // offers onboarding in an effect; the dialog hooks live in a shared chunk the main bundle imports under short names.
@@ -62,4 +62,47 @@ test('index.html gets a one-time refresh of the cached bundle, and only once', (
   assert.ok(first.text.indexOf('location.reload()') < first.text.indexOf('type="module"'), 'runs before the page loads its bundle');
   assert.equal(patchIndexHtml(first.text).status, 'already');
   assert.equal(patchIndexHtml(first.text).text, first.text);
+});
+
+// Shaped like Paperclip's Tasks board column (2026.1005.0): a folded column shows its count in its title, an open
+// one shows its status icon, its name in caps and its card count.
+const BOARD = 'function Kc({status:e,issues:t,collapsed:l=!1}){const I=gm(e);return l?(0,r.jsxs)("div",{title:`${Ws(e)}: ${t.length}`,children:[(0,r.jsx)(ft,{status:e}),(0,r.jsx)("span",{className:q("mt-2 [writing-mode:vertical-rl] rotate-180 text-(length:--text-nano) font-semibold uppercase tracking-wide",I.header),children:Ws(e)})]}):(0,r.jsxs)("div",{className:"flex items-center gap-2 px-3 py-2 mb-1",children:[(0,r.jsx)(ft,{status:e}),(0,r.jsx)("span",{className:q("text-xs font-semibold uppercase tracking-wide",I.header),children:Ws(e)}),(0,r.jsx)("span",{className:q("ml-auto text-xs tabular-nums",I.count),children:t.length})]})}a(gm,"getKanbanColumnTone");';
+
+/** The props the column (patched or not) gives its header icon. */
+function headerIcon(code, column) {
+  const el = (type, props) => ({ type, props });
+  const Kc = new Function('r', 'ft', 'q', 'Ws', 'gm', 'a', `${code.replace(KANBAN_MARKER, '')}; return Kc;`)(
+    { jsx: el, jsxs: el }, 'StatusIcon', (...c) => c.join(' '), (s) => s, () => ({ header: 'h', count: 'c' }), () => {},
+  );
+  return Kc(column).props.children.find((child) => child.type === 'StatusIcon').props;
+}
+
+test("a Tasks board header icon is still while its column is empty, and spins again once it has cards", () => {
+  assert.deepEqual(headerIcon(BOARD, { status: 'in_progress', issues: [] }), { status: 'in_progress' }, 'unpatched: no say in the spin');
+  const patched = patchKanbanHeaders(BOARD);
+  assert.equal(patched.status, 'patched');
+  assert.ok(patched.text.startsWith(KANBAN_MARKER));
+  for (const collapsed of [false, true]) {
+    assert.deepEqual(headerIcon(patched.text, { status: 'in_progress', issues: [], collapsed }), { status: 'in_progress', className: 'motion-safe:animate-none' }, `empty ${collapsed ? 'folded' : 'open'} column: still`);
+    assert.deepEqual(headerIcon(patched.text, { status: 'in_progress', issues: [{}], collapsed }), { status: 'in_progress', className: undefined }, `a card in the ${collapsed ? 'folded' : 'open'} column: Paperclip's own spin`);
+  }
+  assert.equal(patchKanbanHeaders(patched.text).status, 'already');
+});
+
+test('a board it does not recognize is left exactly as it was', () => {
+  const changed = BOARD.replace('ml-auto text-xs tabular-nums', 'ml-auto text-sm tabular-nums');
+  const result = patchKanbanHeaders(changed);
+  assert.equal(result.status, 'unrecognized');
+  assert.equal(result.text, changed);
+});
+
+test('index.html refreshes the fixed board chunk too, once per browser, under a new key', () => {
+  const html = '<head>\n    <script type="module" crossorigin src="/assets/index-ChaaJ8xT.js"></script>\n  </head>';
+  const v1 = patchIndexHtml(html).text;
+  const v2 = patchIndexHtml(v1, 'ui-fixes-v2', ['/assets/RoutineRunVariablesDialog-wOU7aljJ.js']);
+  assert.equal(v2.status, 'patched');
+  assert.match(v2.text, /Promise\.all\(\["\/assets\/index-ChaaJ8xT\.js","\/assets\/RoutineRunVariablesDialog-wOU7aljJ\.js"\]\.map/);
+  assert.match(v2.text, /claude-desktop-paperclip:ui-fixes-v2:\/assets\/index-ChaaJ8xT\.js/);
+  assert.equal(v2.text.split('<!-- claude-desktop-paperclip:refresh -->').length, 2, 'one refresh script, the old one replaced');
+  assert.equal(patchIndexHtml(v2.text, 'ui-fixes-v2', ['/assets/RoutineRunVariablesDialog-wOU7aljJ.js']).status, 'already');
 });

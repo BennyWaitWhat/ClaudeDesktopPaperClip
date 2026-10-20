@@ -131,6 +131,9 @@ update that ships a new page gets the fix again. Paperclip's originals are kept 
   an org with no agents, and that used to replace whatever the wizard was doing: with the wizard open on a new
   org and an agentless org on the Dashboard behind it, the new org's first agent was made in the other org.
   The Dashboard's automatic offer now waits while the wizard is open.
+- **An empty In Progress column no longer spins.** Paperclip spins the in-progress icon wherever it appears, so the
+  Tasks board's In Progress header spun with no card in it and no agent working. A board header icon now spins
+  only while its column has cards; a card's own icon is unchanged.
 - Paperclip lets browsers keep its page for a year, so `index.html` (always fetched fresh) also gets a small
   script that downloads the fixed page once per browser and reloads once.
 
