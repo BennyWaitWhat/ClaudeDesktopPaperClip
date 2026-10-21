@@ -22,11 +22,27 @@ export function conversationSlug({ transcriptPath, agentType }) {
 }
 
 /**
+ * The org folder `cwd` is in: the nearest folder from `cwd` up whose `.claude/agents` holds a Paperclip agent file, or
+ * null. A conversation's folder moves with its `cd`s, and its hooks are given the moved one (2026-10-21: Shea
+ * Technologies' Chief of Staff went into `.claude\agents`, was no longer known, and its next command asked first).
+ * A project inside the org folder with agents of its own (no Paperclip id) is passed over.
+ */
+export function orgFolderOf(cwd) {
+  for (let dir = path.resolve(cwd); ; dir = path.dirname(dir)) {
+    const agents = path.join(dir, '.claude', 'agents');
+    let files = [];
+    try { files = fs.readdirSync(agents).filter((f) => f.endsWith('.md')); } catch { /* none here */ }
+    if (files.some((f) => agentIdOf(read(path.join(agents, f))))) return dir;
+    if (path.dirname(dir) === dir) return null;
+  }
+}
+
+/**
  * The org agent this conversation runs as: { slug, agentId, definition, chief }, or null for a conversation that
  * is not one of the org's agents. A plain conversation (no agent) is the Chief of Staff when `chiefId` is given.
  */
 export function conversationAgent({ cwd, transcriptPath, agentType, chiefId = null }) {
-  const agentsDir = path.join(cwd, '.claude', 'agents');
+  const agentsDir = path.join(orgFolderOf(cwd) ?? cwd, '.claude', 'agents');
   const slug = conversationSlug({ transcriptPath, agentType });
   if (slug) {
     if (!/^[A-Za-z0-9_-]+$/.test(slug)) return null;

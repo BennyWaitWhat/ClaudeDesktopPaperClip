@@ -17,9 +17,13 @@ const compareVersions = (a, b) => {
 // Claude Desktop is a packaged Windows app: its %APPDATA%\Claude is only visible under that name to programs
 // it starts. Everything else finds the same folder under %LOCALAPPDATA%\Packages\Claude_*\LocalCache\Roaming.
 function desktopCodeRoots(env) {
+  const local = env.LOCALAPPDATA ?? path.join(os.homedir(), 'AppData', 'Local');
   const roots = [path.join(env.APPDATA ?? path.join(os.homedir(), 'AppData', 'Roaming'), 'Claude', 'claude-code')];
-  const packages = path.join(env.LOCALAPPDATA ?? path.join(os.homedir(), 'AppData', 'Local'), 'Packages');
+  const packages = path.join(local, 'Packages');
   for (const pkg of list(packages)) if (/^Claude_/i.test(pkg)) roots.push(path.join(packages, pkg, 'LocalCache', 'Roaming', 'Claude', 'claude-code'));
+  // Claude Desktop 3 keeps it in its own data folder: %LOCALAPPDATA%\Claude-Data\claude_<publisher>\claude-code (3.1623, 2026-10-21).
+  const data = path.join(local, 'Claude-Data');
+  for (const dir of list(data)) if (/^claude_/i.test(dir)) roots.push(path.join(data, dir, 'claude-code'));
   return roots;
 }
 

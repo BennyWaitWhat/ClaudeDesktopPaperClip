@@ -16,7 +16,7 @@ test("finds Paperclip's own Claude adapter", () => {
 test("finds Claude Desktop's Claude Code on Windows", { skip: process.platform !== 'win32' }, () => {
   const code = desktopClaudeCode();
   assert.ok(code, 'Claude Desktop has not installed Claude Code here');
-  assert.match(code.file, /[\\/]Claude[\\/]claude-code[\\/][\d.]+[\\/][^\\/]+[\\/]claude\.exe$/);
+  assert.match(code.file, /[\\/]claude-code[\\/][\d.]+[\\/][^\\/]+[\\/]claude\.exe$/i);
 });
 
 test('picks the newest Claude Code version Claude Desktop installed', { skip: process.platform !== 'win32' }, () => {
@@ -37,6 +37,17 @@ test("also finds it inside the packaged app's own folder", { skip: process.platf
   fs.writeFileSync(path.join(dir, 'claude.exe'), '');
   const found = desktopClaudeCode({ APPDATA: path.join(local, 'none'), LOCALAPPDATA: local });
   assert.equal(found.version, '9.9.9');
+  fs.rmSync(local, { recursive: true, force: true });
+});
+
+test("also finds it in Claude Desktop 3's own data folder", { skip: process.platform !== 'win32' }, () => {
+  const local = fs.mkdtempSync(path.join(os.tmpdir(), 'native-data-'));
+  const dir = path.join(local, 'Claude-Data', 'claude_test123', 'claude-code', '2.1.304', 'aed6');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'claude.exe'), '');
+  const found = desktopClaudeCode({ APPDATA: path.join(local, 'none'), LOCALAPPDATA: local });
+  assert.equal(found?.version, '2.1.304');
+  assert.equal(found.file, path.join(dir, 'claude.exe'));
   fs.rmSync(local, { recursive: true, force: true });
 });
 

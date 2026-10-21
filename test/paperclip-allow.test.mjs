@@ -107,4 +107,19 @@ test("Paperclip's Skip permissions switch decides, per agent, from the agent fil
   agentFile('cashier', 'cashier-id', true); // turned on in Paperclip, file rewritten by the plugin
   assert.equal(JSON.parse(await hook({ ...anything[0], transcript_path: transcript('cashier') })).hookSpecificOutput.permissionDecision, 'allow', 'applies from the next tool call');
   assert.equal(await hook({ ...anything[0], transcript_path: transcript('stranger') }), '', 'not one of the org agents: left alone');
+
+  // An agent that cd's into a subfolder is still known there (Shea's Chief of Staff in .claude\agents, 2026-10-21),
+  // past a project inside the org folder that has agents of its own.
+  const project = path.join(folder, 'tools', 'crm');
+  fs.mkdirSync(path.join(project, '.claude', 'agents'), { recursive: true });
+  fs.writeFileSync(path.join(project, '.claude', 'agents', 'reviewer.md'), '---\nname: reviewer\ndescription: "the project\'s own"\n---\n\nReview.\n');
+  fs.mkdirSync(path.join(project, 'src'));
+  for (const cwd of [agents, path.join(folder, '.claude'), path.join(project, 'src')]) {
+    for (const slug of ['chief-of-staff', null]) {
+      const out = await hook({ ...anything[0], cwd, transcript_path: transcript(slug) });
+      assert.equal(JSON.parse(out).hookSpecificOutput.permissionDecision, 'allow', `${slug ?? 'a plain conversation'} in ${path.relative(folder, cwd)}`);
+    }
+  }
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'not-an-org-'));
+  assert.equal(await hook({ ...anything[0], cwd: outside, transcript_path: transcript('chief-of-staff') }), '', 'outside any org folder: left alone');
 });
