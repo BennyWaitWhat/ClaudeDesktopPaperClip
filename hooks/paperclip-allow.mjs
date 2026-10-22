@@ -45,10 +45,16 @@ export function checkedPathFor(org) {
   return [org, ...beside].map((d) => path.join(d, 'google-tools.mjs')).find((f) => fs.existsSync(f)) ?? null;
 }
 
-/** What a held call is told: the checked path, with the full command when google-tools.mjs was found. */
-export function heldReason(tool) {
-  const command = `node ${tool ? `"${tool}"` : 'google-tools.mjs'} --benny-said "<his exact words>" "<what to do>"`;
-  return `Held in Benny's team folders (Benny, 2026-10-21): sending, replying, forwarding, deleting, trashing, sharing and calendar changes happen only on his own words, through the checked path: ${command}. It acts only if he typed those words himself in Claude Desktop in the last 24 hours, one action per go-ahead. Without his words, stage it (a draft, or the change written on a card) and ask him.`;
+/**
+ * What a held call is told: the checked path, with the full command when google-tools.mjs was found. A draft or
+ * message call also hears the one delete that needs no words: a draft the team itself staged through google-tools.mjs
+ * and has replaced (Benny, 2026-10-09: "latter."; 2026-10-21: "You should be able to delete drafts.").
+ */
+export function heldReason(tool, toolName = '') {
+  const node = `node ${tool ? `"${tool}"` : 'google-tools.mjs'}`;
+  const own = /__(delete_draft|trash_message|trash_thread)$/.test(String(toolName))
+    ? ` A draft the team staged itself through google-tools.mjs and has replaced needs no words: ${node} --delete-draft <draft-id>.` : '';
+  return `Held in Benny's team folders (Benny, 2026-10-21): sending, replying, forwarding, deleting, trashing, sharing and calendar changes happen only on his own words, through the checked path: ${node} --benny-said "<his exact words>" "<what to do>". It acts only if he typed those words himself in Claude Desktop in the last 24 hours, one action per go-ahead.${own} Without his words, stage it (a draft, or the change written on a card) and ask him.`;
 }
 
 /** Shell words of one simple command, quotes removed; null when it uses anything this hook does not judge. */
@@ -171,7 +177,7 @@ export function paperclipOnly(command, { api }) {
 
 /** The hook's answer for one tool call, or null to leave it to the usual question. */
 export function decide(input, { api, chiefId = null, agentFor, checkedPath = () => null }) {
-  if (wordsOnly(input?.tool_name)) return { permissionDecision: 'deny', permissionDecisionReason: heldReason(checkedPath(input?.cwd)) };
+  if (wordsOnly(input?.tool_name)) return { permissionDecision: 'deny', permissionDecisionReason: heldReason(checkedPath(input?.cwd), input.tool_name) };
   const agent = agentFor({ cwd: input?.cwd, transcriptPath: input?.transcript_path, agentType: input?.agent_type, chiefId });
   if (agent?.skip) return { permissionDecision: 'allow', permissionDecisionReason: 'Skip permissions is on for this agent in Paperclip (ClaudeDesktopPaperClip)' };
   if (input?.tool_name === 'Bash' && paperclipOnly(input.tool_input?.command, { api })) {

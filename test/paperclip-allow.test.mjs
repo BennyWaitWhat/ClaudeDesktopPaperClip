@@ -192,4 +192,10 @@ test('a held call is refused for every conversation in the folder, and told the 
   assert.match(away.hookSpecificOutput.permissionDecisionReason, /node google-tools\.mjs --benny-said/);
   const draft = JSON.parse(await hook({ tool_name: 'mcp__claude_ai_Gmail__create_draft', tool_input: {}, cwd: shea, transcript_path: transcript }));
   assert.equal(draft.hookSpecificOutput.permissionDecision, 'allow', 'a draft is still free');
+
+  // Deleting a draft is held too, but the team's own replaced drafts keep their way that needs no words.
+  const del = JSON.parse(await hook({ tool_name: 'mcp__claude_ai_Gmail__delete_draft', tool_input: { draftId: 'r-1' }, cwd: shea }));
+  assert.equal(del.hookSpecificOutput.permissionDecision, 'deny');
+  assert.ok(del.hookSpecificOutput.permissionDecisionReason.includes(`node "${path.join(catchers, 'google-tools.mjs')}" --delete-draft <draft-id>`), del.hookSpecificOutput.permissionDecisionReason);
+  assert.doesNotMatch(JSON.parse(await hook({ ...send, cwd: shea })).hookSpecificOutput.permissionDecisionReason, /--delete-draft/, 'a send is not told about drafts');
 });
