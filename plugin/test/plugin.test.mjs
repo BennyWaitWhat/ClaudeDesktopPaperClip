@@ -54,6 +54,7 @@ async function harness() {
     sync: async ({ companyId }) => { synced.push(companyId); return { skipped: 'stand-in' }; },
     noteCard: async ({ issueId }) => { noted.push(issueId); return null; },
     signIn: async () => ({ renewed: false, reason: 'stand-in' }),
+    uiFixes: async () => ({ status: 'already' }),
   });
   const h = createTestHarness({ manifest });
   h.seed({ companies: [{ id: 'c1', name: 'Test Org' }, { id: 'c2', name: 'Older Org' }, { id: 'c3', name: 'cdpc rehearsal abc123' }] });

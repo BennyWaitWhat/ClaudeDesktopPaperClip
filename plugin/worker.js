@@ -2,7 +2,9 @@
 // the org's folder and its agents' Desktop conversations in step with Paperclip (org-sync.mjs): at once when
 // Paperclip's live activity feed shows an agent hired, changed or removed, and once a minute besides. It also keeps
 // command-line Claude's sign-in fresh for Paperclip's own Claude checks (claude-sign-in.mjs).
+import { execFile } from 'node:child_process';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { definePlugin, runWorker } from '@paperclipai/plugin-sdk';
 import { desktopClaudeCode, handOffWhenQuiet, openInDesktop, windowsUserEnv } from '../desktop.mjs';
 import { desktopOrgs, isDesktopOrg, pluginKeeps, readOrg, REHEARSAL_ORG, switchOrg } from '../desktop-orgs.mjs';
@@ -11,11 +13,24 @@ import { boardGuard } from '../board-hold.mjs';
 import { keepSignInFresh } from '../claude-sign-in.mjs';
 import { claudeTeam, markHandedOff, noteNewCard, paperclipApi, paperclipInstance, syncOrg } from '../org-sync.mjs';
 import { paperclipCall } from '../paperclip-access.mjs';
-import { applyUiFixes } from '../paperclip-ui-fixes.mjs';
 import { desktopFolder, ensureFolder, ensureOrgFolder, orgFolderName } from './folders.mjs';
 
 export const FOLDER_KEY = 'org';
 const WHERE_NEW_ORGS_GO = { scopeKind: 'instance', stateKey: 'new-org-parent' };
+const UI_FIXES = fileURLToPath(new URL('../paperclip-ui-fixes.mjs', import.meta.url));
+
+/**
+ * Paperclip's page fixes (paperclip-ui-fixes.mjs), in a process of their own. Right after a Paperclip update they
+ * patch and check a new page, which took longer than the 15 seconds Paperclip gives a plugin to start (2026.1012.0,
+ * 2026-10-21: "RPC call "initialize" timed out after 15000ms"), so the plugin never started.
+ */
+export function runUiFixes() {
+  return new Promise((resolve) => {
+    execFile(process.execPath, [UI_FIXES], { env: windowsUserEnv(), windowsHide: true, timeout: 5 * 60_000 }, (error, stdout) => {
+      try { resolve(JSON.parse(String(stdout).trim().split('\n').pop())); } catch { resolve({ status: 'error', reason: error?.message ?? 'no answer' }); }
+    });
+  });
+}
 
 // What the worker works with; tests swap these before setup.
 export const options = {
@@ -28,6 +43,7 @@ export const options = {
   tickMs: 60_000,
   signIn: keepSignInFresh,
   signInMs: 60_000,
+  uiFixes: runUiFixes,
 };
 const api = () => options.api ?? paperclipApi(options.instance);
 const claude = () => desktopClaudeCode(windowsUserEnv())?.file ?? 'claude';
@@ -163,9 +179,8 @@ const plugin = definePlugin({
   async setup(ctx) {
     host = ctx;
 
-    // Fixes to Paperclip's own page (paperclip-ui-fixes.mjs), again after each Paperclip update ships a new page.
-    const fixes = applyUiFixes();
-    ctx.logger.info('Paperclip page fixes', fixes);
+    // Fixes to Paperclip's own page, again after each Paperclip update ships a new page; setup does not wait for them.
+    options.uiFixes().then((fixes) => ctx.logger.info('Paperclip page fixes', fixes));
 
     const onDesktop = desktopOrgs(options.instance).filter(pluginKeeps);
     ctx.logger.info('Orgs on Claude Desktop', { orgs: onDesktop.map((o) => ({ companyId: o.companyId, folder: o.folder })) });
