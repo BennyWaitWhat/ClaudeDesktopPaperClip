@@ -68,24 +68,28 @@ export function createExecute({
 
 const execute = createExecute();
 
-// Paperclip's hello test runs only with the `claude` it trusts on this computer's PATH. With Claude Desktop's own copy
-// it is skipped, and Paperclip then refuses to save an agent whose AI connection it checks on save
-// (ai_connection_validation_incomplete).
+// Paperclip's hello test. Until 2026.1005.0 it ran only with the `claude` it trusts on this computer's PATH and skipped
+// Claude Desktop's own copy, and Paperclip then refused to save an agent whose AI connection it checks on save
+// (ai_connection_validation_incomplete). Since 2026.1012.0 it runs Desktop's copy with the agent's own settings, Chrome
+// and max effort included, and that hello failed (exit code 1, in the setup wizard, 2026-10-21).
 const HELLO_SKIPPED = ['claude_cli_version_probe_mismatch', 'claude_hello_probe_skipped_custom_command', 'claude_hello_probe_skipped_unresolved_command'];
 const skippedHello = (result) => (result?.checks ?? []).some((c) => HELLO_SKIPPED.includes(c.code));
+const helloPassed = (result) => (result?.checks ?? []).some((c) => c.code === 'claude_hello_probe_passed');
+// Only the sign-in is tested here: the hello runs on a small model at low effort without Chrome, and gets 2 minutes
+// (Paperclip's 45 seconds ran out at max effort). With no model set, Paperclip asks for its default, claude-opus-5,
+// which this account's Claude refuses (exit code 1, 2026-10-21).
+export const SIGN_IN_MODEL = 'claude-haiku-5-5';
+const signInOnly = (config) => ({ ...config, model: SIGN_IN_MODEL, effort: 'low', chrome: false, helloProbeTimeoutSec: 120 });
 
 /** The environment test, with what it runs passed in (tests swap them). */
 export function createTestEnvironment({ runBuiltin = (ctx) => builtin.testEnvironment(ctx), desktopCode = () => desktopClaudeCode() } = {}) {
   return async function testEnvironment(ctx) {
     const code = desktopCode();
-    let result = await runBuiltin({ ...ctx, config: nativeConfig(ctx.config, { command: code?.file }) });
-    // Desktop's copy skipped the hello: test again with the `claude` on PATH, which signs in with the same account.
-    // Only the sign-in is tested here, so the hello runs at low effort without Chrome, and gets 2 minutes (Paperclip's
-    // 45 seconds ran out at max effort).
-    if (code && skippedHello(result)) {
-      const config = { ...nativeConfig(ctx.config, { command: 'claude' }), effort: 'low', chrome: false, helloProbeTimeoutSec: 120 };
-      const again = await runBuiltin({ ...ctx, config });
-      if (!skippedHello(again)) result = again;
+    let result = await runBuiltin({ ...ctx, config: signInOnly(nativeConfig(ctx.config, { command: code?.file })) });
+    // Desktop's copy did not pass the hello: test again with the `claude` on PATH, which signs in with the same account.
+    if (code && !helloPassed(result)) {
+      const again = await runBuiltin({ ...ctx, config: signInOnly(nativeConfig(ctx.config, { command: 'claude' })) });
+      if (helloPassed(again) || (skippedHello(result) && !skippedHello(again))) result = again;
     }
     const check = code
       ? { code: 'claude_desktop_code', level: 'info', message: `Claude Desktop's Claude Code ${code.version} is here; the agents work in Claude Desktop.`, detail: code.file }

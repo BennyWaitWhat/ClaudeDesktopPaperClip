@@ -139,7 +139,7 @@ test("the environment test falls back to the `claude` on PATH when Desktop's own
   const commands = [];
   const run = (answers) => async (ctx) => {
     commands.push(ctx.config.command);
-    if (ctx.config.command === 'claude') assert.deepEqual([ctx.config.effort, ctx.config.chrome, ctx.config.helloProbeTimeoutSec], ['low', false, 120], 'only the sign-in is tested');
+    assert.deepEqual([ctx.config.model, ctx.config.effort, ctx.config.chrome, ctx.config.helloProbeTimeoutSec], ['claude-haiku-5-5', 'low', false, 120], 'only the sign-in is tested');
     return answers[ctx.config.command === 'claude' ? 1 : 0];
   };
 
@@ -153,6 +153,15 @@ test("the environment test falls back to the `claude` on PATH when Desktop's own
   assert.deepEqual(kept.checks.map((c) => c.code), ['claude_desktop_code', 'claude_cli_version_probe_mismatch'], 'no better result: the first stays');
 
   commands.length = 0;
-  await createTestEnvironment({ runBuiltin: run([passed]), desktopCode: () => desktop })({ config: {} });
-  assert.deepEqual(commands, [desktop.file], "Desktop's copy ran the hello: one test");
+  await createTestEnvironment({ runBuiltin: run([passed]), desktopCode: () => desktop })({ config: { effort: 'max', chrome: true } });
+  assert.deepEqual(commands, [desktop.file], "Desktop's copy passed the hello: one test");
+
+  // Paperclip 2026.1012.0 runs the hello with Desktop's copy, which can fail it (2026-10-21).
+  const failed = { status: 'fail', checks: [{ code: 'claude_hello_probe_failed', level: 'error' }] };
+  commands.length = 0;
+  const rescued = await createTestEnvironment({ runBuiltin: run([failed, passed]), desktopCode: () => desktop })({ config: { effort: 'max', chrome: true } });
+  assert.deepEqual(commands, [desktop.file, 'claude']);
+  assert.equal(rescued.status, 'pass', 'a failed hello with Desktop\'s copy is tried again with the `claude` on PATH');
+  const bothFailed = await createTestEnvironment({ runBuiltin: run([failed, failed]), desktopCode: () => desktop })({ config: {} });
+  assert.deepEqual(bothFailed.checks.map((c) => c.code), ['claude_desktop_code', 'claude_hello_probe_failed']);
 });
