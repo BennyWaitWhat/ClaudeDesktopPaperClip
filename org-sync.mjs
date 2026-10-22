@@ -21,6 +21,7 @@ import { checksBoardSteps, readInstructions, removeOtherAgentFiles, skipsPermiss
 import { windowsUserEnv } from './desktop.mjs';
 import { readOrg, updateOrg } from './desktop-orgs.mjs';
 import { HELLO_ENV } from './desktop-turn.mjs';
+import { houseSetUp } from './house-setup.mjs';
 import { ensureGitExclude, ensureOrgSettings, isGitRepo } from './org-folder.mjs';
 import { paperclipCall } from './paperclip-access.mjs';
 import { addToInbox } from './paperclip-wakes.mjs';
@@ -111,7 +112,7 @@ export function teamRoster({ org, team, slugs, conversations }) {
  * what it did: { skipped } or { org, wrote, made, handOff: [{ agentId, name, sessionId }] } (conversations ready
  * for Claude Desktop that it has not been handed yet).
  */
-export async function syncOrg({ api, instance, companyId, node = process.execPath, claude, hello = createConversation, now = () => Date.now() }) {
+export async function syncOrg({ api, instance, companyId, node = process.execPath, claude, hello = createConversation, setUp = houseSetUp, now = () => Date.now() }) {
   const state = readOrg(instance, companyId);
   if (state?.desktop !== true) return { skipped: 'not switched to Claude Desktop' };
   const folder = state.folder;
@@ -121,9 +122,16 @@ export async function syncOrg({ api, instance, companyId, node = process.execPat
   if (company.json.status === 'archived') return { skipped: 'archived' };
   const listed = await paperclipCall(api, `/api/companies/${companyId}/agents`);
   if (listed.status !== 200 || !Array.isArray(listed.json)) return { skipped: `Paperclip answered ${listed.status}` };
-  const { team, chief } = claudeTeam(listed.json);
+  let { team, chief } = claudeTeam(listed.json);
   if (!chief) return { skipped: 'no Chief of Staff yet' };
   const org = company.json.name;
+
+  // The house way, once for each agent not seen before (house-setup.mjs), before its file and conversation are made.
+  const house = await setUp({ api, instance, companyId, org, folder, team, chief });
+  if (house.changed.length) {
+    const again = await paperclipCall(api, `/api/companies/${companyId}/agents`);
+    if (again.status === 200 && Array.isArray(again.json)) ({ team, chief } = claudeTeam(again.json));
+  }
 
   const wrote = [];
   const slugs = new Map();
@@ -150,6 +158,8 @@ export async function syncOrg({ api, instance, companyId, node = process.execPat
   for (const agent of team) {
     const known = readOrg(instance, companyId)?.conversations?.[agent.id];
     if (known?.ready || (known?.failedAt && now() - Date.parse(known.failedAt) < RETRY_MS)) continue;
+    if (house.pending.includes(agent.id)) continue; // Desktop would keep the model it was made with
+
     const result = await hello({ claude, folder, slug: slugs.get(agent.id), name: agent.name, org, skipPermissions: skipsPermissions(agent) });
     made.push({ agentId: agent.id, name: agent.name, ...result });
     updateOrg(instance, companyId, (o) => ({
@@ -176,7 +186,7 @@ export async function syncOrg({ api, instance, companyId, node = process.execPat
   const handOff = team
     .filter((a) => conversations[a.id]?.ready && !conversations[a.id].handedOff)
     .map((a) => ({ agentId: a.id, name: a.name, sessionId: conversations[a.id].sessionId }));
-  return { org, folder, chief: chief.id, wrote, skippedSkills: skills.skipped, made, handOff };
+  return { org, folder, chief: chief.id, house: house.changed, wrote, skippedSkills: skills.skipped, made, handOff };
 }
 
 /** Note that an agent's conversation is in Claude Desktop's sidebar. */

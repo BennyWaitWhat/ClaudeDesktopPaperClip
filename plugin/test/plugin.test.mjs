@@ -75,6 +75,9 @@ test('creating an org makes its folder where you chose, and moves the org to Cla
   assert.equal(org.desktop, true);
   assert.equal(org.folder, folder.path);
   assert.deepEqual(synced, ['c1'], 'its team is brought into Claude Desktop right away');
+  assert.deepEqual(org.house, { agents: {} }, 'a new org: its agents are set up the house way');
+  assert.match(fs.readFileSync(path.join(folder.path, 'CLAUDE.md'), 'utf8'), /^# Test Org\n/, 'the house rules, with its name');
+  assert.match(fs.readFileSync(path.join(folder.path, 'FACTS.md'), 'utf8'), /^# Facts: Test Org\n/);
 
   // An org that already has a folder keeps it.
   await h.emit('company.created', {}, { companyId: 'c1', entityId: 'c1', entityType: 'company' });

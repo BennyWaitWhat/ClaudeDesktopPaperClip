@@ -10,6 +10,7 @@ import { desktopClaudeCode, handOffWhenQuiet, openInDesktop, windowsUserEnv } fr
 import { desktopOrgs, isDesktopOrg, pluginKeeps, readOrg, REHEARSAL_ORG, switchOrg } from '../desktop-orgs.mjs';
 import { ALWAYS_TOOLS, desktopTools } from '../agent-files.mjs';
 import { boardGuard } from '../board-hold.mjs';
+import { markNewOrg, orgTemplate, seedOrgFolder } from '../house-setup.mjs';
 import { keepSignInFresh } from '../claude-sign-in.mjs';
 import { claudeTeam, markHandedOff, noteNewCard, paperclipApi, paperclipInstance, syncOrg } from '../org-sync.mjs';
 import { paperclipCall } from '../paperclip-access.mjs';
@@ -197,8 +198,10 @@ const plugin = definePlugin({
       const companyId = event.companyId ?? event.entityId;
       const company = await ctx.companies.get(companyId);
       if (REHEARSAL_ORG.test(company?.name ?? '')) return; // scripts/org-rehearsal.mjs brings it in itself
+      markNewOrg(options.instance, companyId); // before its first sync: its agents are set up the house way
       const org = await setDesktop(ctx, companyId, true);
-      ctx.logger.info('New org on Claude Desktop', { companyId, folder: org.folder });
+      const wrote = seedOrgFolder({ folder: org.folder, org: company.name, template: orgTemplate(options.instance) });
+      ctx.logger.info('New org on Claude Desktop', { companyId, folder: org.folder, wrote });
     });
     for (const name of ['agent.created', 'agent.updated', 'approval.decided']) {
       ctx.events.on(name, async (event) => {
