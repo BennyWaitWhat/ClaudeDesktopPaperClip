@@ -33,7 +33,8 @@ const HELD = [...new Set(Object.values(WORDS_ONLY).flat())];
 // Teams whose calendar changes need no words from him. Benny, 2026-10-22, in Career Catchers' thread, quoting our
 // "calendar changes": "not needed for calendar. yall have been doing a good job." The calls stay held, so they go
 // through the helper, whose plain run changes only the events a request names and adds no guest it does not name.
-// Other teams keep his words for calendar changes until he says otherwise.
+// Other teams keep his words for calendar changes until he says otherwise. The helper keeps the same list by
+// Paperclip company id (CALENDAR_FREE_COMPANY in google-tools.mjs, Career-Ops-B 378cab0): change both together.
 export const CALENDAR_FREE = new Set(['Career Catchers']);
 const CONNECTOR_TOOL = /^mcp__(?:claude_ai_([A-Za-z0-9_]+?)|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})__([a-z0-9_]+)$/;
 
