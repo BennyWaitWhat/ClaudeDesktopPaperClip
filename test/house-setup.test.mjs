@@ -3,12 +3,14 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import test, { after } from 'node:test';
 import { readOrg, switchOrg } from '../desktop-orgs.mjs';
 import { fill, houseConfig, houseSetUp, markNewOrg, orgTemplate, seedOrgFolder, templateDir } from '../house-setup.mjs';
 import { syncOrg } from '../org-sync.mjs';
 
-const tmp = (name) => fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`));
+const made = [];
+after(() => { for (const dir of made) { try { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5 }); } catch { /* still held: left */ } } });
+const tmp = (name) => { const dir = fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`)); made.push(dir); return dir; };
 const ORG = 'org-h';
 const FOLDER = 'C:\\Users\\Benny\\Desktop\\PaperClip\\Lemon Co';
 

@@ -2,10 +2,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import test, { after } from 'node:test';
 import { clearStaleLock, keepSignInFresh, needsRenewal, tokenExpiry } from '../claude-sign-in.mjs';
 
-const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'sign-in-'));
+const made = [];
+after(() => { for (const dir of made) { try { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5 }); } catch { /* still held: left */ } } });
+const tmp = () => { const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sign-in-')); made.push(dir); return dir; };
 const signIn = (dir, expiresAt) => fs.writeFileSync(path.join(dir, '.credentials.json'), JSON.stringify({ claudeAiOauth: { accessToken: 'x', refreshToken: 'r', expiresAt } }));
 const NOW = Date.parse('2026-10-12T23:00:00Z');
 const HOUR = 60 * 60_000;

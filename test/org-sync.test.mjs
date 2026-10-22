@@ -3,12 +3,14 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import test, { after } from 'node:test';
 import { desktopOrgs, isDesktopOrg, readOrg, switchOrg } from '../desktop-orgs.mjs';
 import { claudeTeam, markHandedOff, noteNewCard, paperclipApi, syncOrg, TEAM_FILE } from '../org-sync.mjs';
 import { takeInbox } from '../paperclip-wakes.mjs';
 
-const tmp = (name) => fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`));
+const made = [];
+after(() => { for (const dir of made) { try { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5 }); } catch { /* still held: left */ } } });
+const tmp = (name) => { const dir = fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`)); made.push(dir); return dir; };
 const ORG = 'org-1';
 
 function team(instructionsDir) {

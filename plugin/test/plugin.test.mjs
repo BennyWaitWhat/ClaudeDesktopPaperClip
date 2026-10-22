@@ -1,6 +1,6 @@
 // Offline checks for the Claude Desktop plugin: folder naming, and the worker in the SDK's test harness (no
 // Paperclip server, no Claude Desktop, no model calls: the org sync and the hand-off are stand-ins).
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -13,7 +13,9 @@ import manifest from '../manifest.js';
 import plugin, { FOLDER_KEY, options } from '../worker.js';
 import { desktopFolder, ensureFolder, ensureOrgFolder, orgFolderName } from '../folders.mjs';
 
-const tmp = (name) => fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`));
+const made = [];
+after(() => { for (const dir of made) { try { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5 }); } catch { /* still held: left */ } } });
+const tmp = (name) => { const dir = fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`)); made.push(dir); return dir; };
 const settle = () => new Promise((r) => setTimeout(r, 50));
 
 test('org names become folder names Windows accepts', () => {

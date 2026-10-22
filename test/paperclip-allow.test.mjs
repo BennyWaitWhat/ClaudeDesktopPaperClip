@@ -1,8 +1,13 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import test from 'node:test';
+import fs from 'node:fs';
+import test, { after } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { checkedPathFor, paperclipOnly, wordsOnly } from '../hooks/paperclip-allow.mjs';
+
+const made = [];
+after(() => { for (const dir of made) { try { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5 }); } catch { /* still held: left */ } } });
+const keep = (dir) => { made.push(dir); return dir; };
 
 const HOOK = fileURLToPath(new URL('../hooks/paperclip-allow.mjs', import.meta.url));
 const CARD = HOOK.replace(/paperclip-allow\.mjs$/, 'paperclip-card.mjs').replace(/\\/g, '/');
@@ -74,7 +79,7 @@ test("Paperclip's Skip permissions switch decides, per agent, from the agent fil
   const fs = await import('node:fs');
   const os = await import('node:os');
   const path = await import('node:path');
-  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'org-'));
+  const folder = keep(fs.mkdtempSync(path.join(os.tmpdir(), 'org-')));
   const agents = path.join(folder, '.claude', 'agents');
   fs.mkdirSync(agents, { recursive: true });
   const agentFile = (slug, id, skip) => fs.writeFileSync(path.join(agents, `${slug}.md`), `---\nname: ${slug}\ndescription: "x"\npaperclip-skip-permissions: ${skip}\npaperclip-agent-id: ${id}\n---\n\nHi.\n`);
@@ -120,7 +125,7 @@ test("Paperclip's Skip permissions switch decides, per agent, from the agent fil
       assert.equal(JSON.parse(out).hookSpecificOutput.permissionDecision, 'allow', `${slug ?? 'a plain conversation'} in ${path.relative(folder, cwd)}`);
     }
   }
-  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'not-an-org-'));
+  const outside = keep(fs.mkdtempSync(path.join(os.tmpdir(), 'not-an-org-')));
   assert.equal(await hook({ ...anything[0], cwd: outside, transcript_path: transcript('chief-of-staff') }), '', 'outside any org folder: left alone');
 });
 
@@ -155,7 +160,7 @@ test('a held call is refused for every conversation in the folder, and told the 
   const fs = await import('node:fs');
   const os = await import('node:os');
   const path = await import('node:path');
-  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'orgs-'));
+  const parent = keep(fs.mkdtempSync(path.join(os.tmpdir(), 'orgs-')));
   const org = (name, skip) => {
     const agents = path.join(parent, name, '.claude', 'agents');
     fs.mkdirSync(agents, { recursive: true });
@@ -181,7 +186,7 @@ test('a held call is refused for every conversation in the folder, and told the 
     assert.equal(out.hookSpecificOutput.permissionDecision, 'deny', `refused even with Skip permissions on: ${where.cwd}`);
     assert.ok(out.hookSpecificOutput.permissionDecisionReason.includes(`node "${path.join(catchers, 'google-tools.mjs')}" --benny-said`), out.hookSpecificOutput.permissionDecisionReason);
   }
-  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'not-an-org-'));
+  const outside = keep(fs.mkdtempSync(path.join(os.tmpdir(), 'not-an-org-')));
   const away = JSON.parse(await hook({ ...send, cwd: outside }));
   assert.equal(away.hookSpecificOutput.permissionDecision, 'deny', 'a conversation that moved out of the folder is still held');
   assert.match(away.hookSpecificOutput.permissionDecisionReason, /node google-tools\.mjs --benny-said/);

@@ -4,12 +4,14 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import test, { after } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { doneFile, quietEnding, readNewLines, recordDesktopTurn, sessionFile, turnFile, turnsDir } from '../desktop-turn.mjs';
 
 const HOOK = fileURLToPath(new URL('../hooks/desktop-turn.mjs', import.meta.url));
-const tmp = (name) => fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`));
+const made = [];
+after(() => { for (const dir of made) { try { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5 }); } catch { /* still held: left */ } } });
+const tmp = (name) => { const dir = fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`)); made.push(dir); return dir; };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const line = (e) => `${JSON.stringify(e)}\n`;
 const assistant = (id, text, usage, extra = {}) => ({ type: 'assistant', uuid: `a-${id}`, message: { id, model: 'claude-haiku-5-5', role: 'assistant', content: [{ type: 'text', text }], stop_reason: 'end_turn', usage }, ...extra });

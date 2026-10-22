@@ -2,10 +2,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import test, { after } from 'node:test';
 import { agentMarkdown, agentSlug, bundledSkillDir, checksBoardSteps, readInstructions, syncSkills, writeAgentFile } from '../agent-files.mjs';
 
-const tmp = (name) => fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`));
+const made = [];
+after(() => { for (const dir of made) { try { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5 }); } catch { /* still held: left */ } } });
+const tmp = (name) => { const dir = fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`)); made.push(dir); return dir; };
 const cashier = { id: 'a1b2c3d4-0000-4000-8000-000000000001', name: 'Cashier', title: 'Runs the till', adapterConfig: { model: 'claude-haiku-5-5', effort: 'medium' } };
 
 test('an agent name becomes a Claude Code agent name', () => {

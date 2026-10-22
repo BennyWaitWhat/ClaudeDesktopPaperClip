@@ -3,7 +3,10 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import test, { after } from 'node:test';
+
+const made = [];
+after(() => { for (const dir of made) { try { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5 }); } catch { /* still held: left */ } } });
 
 const ORG = 'org-1', AGENT = 'agent-1', ROUTINE = 'routine-1';
 
@@ -31,6 +34,7 @@ async function fakePaperclip({ run = {} } = {}) {
 /** A Paperclip instance folder that points at the stand-in, with the org on Claude Desktop (or not). */
 function instance(port, { desktop = true } = {}) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'run-routine-'));
+  made.push(home);
   const dir = path.join(home, 'instances', 'default');
   fs.mkdirSync(path.join(dir, 'claude-desktop', 'orgs'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'runtime-info.json'), JSON.stringify({ port, host: '127.0.0.1' }));

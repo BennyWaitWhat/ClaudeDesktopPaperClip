@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import test, { after } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { doneFile, runIdFile, seenFile, sessionFile, turnFile, turnsDir } from '../desktop-turn.mjs';
 import { chiefOf, ensureGitExclude, ensureOrgSettings, hasSessionHook } from '../org-folder.mjs';
@@ -14,7 +14,9 @@ const HOOK = fileURLToPath(new URL('../hooks/desktop-turn.mjs', import.meta.url)
 const SESSION_HOOK = fileURLToPath(new URL('../hooks/desktop-session.mjs', import.meta.url));
 const CARD_TOOL = fileURLToPath(new URL('../hooks/paperclip-card.mjs', import.meta.url));
 const GIT_BASH = ['C:/Program Files/Git/bin/bash.exe', 'C:/Program Files (x86)/Git/bin/bash.exe'].find((f) => fs.existsSync(f));
-const tmp = (name) => fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`));
+const made = [];
+after(() => { for (const dir of made) { try { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5 }); } catch { /* still held: left */ } } });
+const tmp = (name) => { const dir = fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`)); made.push(dir); return dir; };
 const line = (e) => `${JSON.stringify(e)}\n`;
 
 /**
