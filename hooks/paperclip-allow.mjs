@@ -29,6 +29,12 @@ export const WORDS_ONLY = {
   Google_Drive: ['share_file', 'trash_file'],
 };
 const HELD = [...new Set(Object.values(WORDS_ONLY).flat())];
+
+// Teams whose calendar changes need no words from him. Benny, 2026-10-22, in Career Catchers' thread, quoting our
+// "calendar changes": "not needed for calendar. yall have been doing a good job." The calls stay held, so they go
+// through the helper, whose plain run changes only the events a request names and adds no guest it does not name.
+// Other teams keep his words for calendar changes until he says otherwise.
+export const CALENDAR_FREE = new Set(['Career Catchers']);
 const CONNECTOR_TOOL = /^mcp__(?:claude_ai_([A-Za-z0-9_]+?)|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})__([a-z0-9_]+)$/;
 
 /** True for a call to one of Benny's claude.ai connectors that only his own words open. */
@@ -50,8 +56,12 @@ export function checkedPathFor(org) {
  * message call also hears the one delete that needs no words: a draft the team itself staged through google-tools.mjs
  * and has replaced (Benny, 2026-10-09: "latter."; 2026-10-21: "You should be able to delete drafts.").
  */
-export function heldReason(tool, toolName = '') {
+export function heldReason(tool, toolName = '', { org = null } = {}) {
   const node = `node ${tool ? `"${tool}"` : 'google-tools.mjs'}`;
+  const team = org ? path.basename(org) : '';
+  if (CALENDAR_FREE.has(team) && /^mcp__claude_ai_Google_Calendar__/.test(String(toolName))) {
+    return `Held in Benny's team folders, so it goes through the helper. In ${team} a calendar change needs no words from him (Benny, 2026-10-22: "not needed for calendar. yall have been doing a good job."): ${node} "<the change: which event, and what to add, move, remove or answer>". It changes only the events the request names and adds no guest the request does not name.`;
+  }
   const own = /__(delete_draft|trash_message|trash_thread)$/.test(String(toolName))
     ? ` A draft the team staged itself through google-tools.mjs and has replaced needs no words: ${node} --delete-draft <draft-id>.` : '';
   return `Held in Benny's team folders (Benny, 2026-10-21): sending, replying, forwarding, deleting, trashing, sharing and calendar changes happen only on his own words, through the checked path: ${node} --benny-said "<his exact words>" "<what to do>". It acts only if he typed those words himself in Claude Desktop in the last 24 hours, one action per go-ahead.${own} Without his words, stage it (a draft, or the change written on a card) and ask him.`;
@@ -176,8 +186,11 @@ export function paperclipOnly(command, { api }) {
 }
 
 /** The hook's answer for one tool call, or null to leave it to the usual question. */
-export function decide(input, { api, chiefId = null, agentFor, checkedPath = () => null }) {
-  if (wordsOnly(input?.tool_name)) return { permissionDecision: 'deny', permissionDecisionReason: heldReason(checkedPath(input?.cwd), input.tool_name) };
+export function decide(input, { api, chiefId = null, agentFor, orgOf = () => null }) {
+  if (wordsOnly(input?.tool_name)) {
+    const org = orgOf(input?.cwd);
+    return { permissionDecision: 'deny', permissionDecisionReason: heldReason(checkedPathFor(org), input.tool_name, { org }) };
+  }
   const agent = agentFor({ cwd: input?.cwd, transcriptPath: input?.transcript_path, agentType: input?.agent_type, chiefId });
   if (agent?.skip) return { permissionDecision: 'allow', permissionDecisionReason: 'Skip permissions is on for this agent in Paperclip (ClaudeDesktopPaperClip)' };
   if (input?.tool_name === 'Bash' && paperclipOnly(input.tool_input?.command, { api })) {
@@ -195,7 +208,7 @@ if (process.argv[1] && norm(fileURLToPath(import.meta.url)) === norm(process.arg
     const agent = conversationAgent(where);
     return agent ? { ...agent, skip: skipsPermissionsIn(agent.definition) } : null;
   };
-  const checkedPath = (cwd) => (cwd ? checkedPathFor(orgFolderOf(cwd)) : null);
-  const answer = input ? decide(input, { api, chiefId, agentFor, checkedPath }) : null;
+  const orgOf = (cwd) => (cwd ? orgFolderOf(cwd) : null);
+  const answer = input ? decide(input, { api, chiefId, agentFor, orgOf }) : null;
   if (answer) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', ...answer } }));
 }

@@ -198,4 +198,18 @@ test('a held call is refused for every conversation in the folder, and told the 
   assert.equal(del.hookSpecificOutput.permissionDecision, 'deny');
   assert.ok(del.hookSpecificOutput.permissionDecisionReason.includes(`node "${path.join(catchers, 'google-tools.mjs')}" --delete-draft <draft-id>`), del.hookSpecificOutput.permissionDecisionReason);
   assert.doesNotMatch(JSON.parse(await hook({ ...send, cwd: shea })).hookSpecificOutput.permissionDecisionReason, /--delete-draft/, 'a send is not told about drafts');
+
+  // Calendar changes stay held everywhere. In Career Catchers they go to the helper's plain run, no words (Benny,
+  // 2026-10-22); other teams still need his words.
+  const event = { tool_name: 'mcp__claude_ai_Google_Calendar__create_event', tool_input: { summary: 'Interview' } };
+  const atCatchers = JSON.parse(await hook({ ...event, cwd: catchers })).hookSpecificOutput;
+  assert.equal(atCatchers.permissionDecision, 'deny', 'still held in Career Catchers, so it goes through the helper');
+  assert.ok(atCatchers.permissionDecisionReason.includes(`node "${path.join(catchers, 'google-tools.mjs')}" "<the change`), atCatchers.permissionDecisionReason);
+  assert.match(atCatchers.permissionDecisionReason, /not needed for calendar/);
+  assert.doesNotMatch(atCatchers.permissionDecisionReason, /--benny-said/);
+  const atShea = JSON.parse(await hook({ ...event, cwd: shea })).hookSpecificOutput;
+  assert.equal(atShea.permissionDecision, 'deny');
+  assert.match(atShea.permissionDecisionReason, /--benny-said/, 'another team still needs his words for a calendar change');
+  const sendAtCatchers = JSON.parse(await hook({ ...send, cwd: catchers })).hookSpecificOutput;
+  assert.match(sendAtCatchers.permissionDecisionReason, /--benny-said/, 'a send in Career Catchers still needs his words');
 });

@@ -67,7 +67,11 @@ The org folder's `.claude/settings.json` runs three hooks (`org-folder.mjs` puts
   `node "<Career Catchers>\google-tools.mjs" --benny-said "<your exact words>" "<what to do>"`, found in the org folder
   or one beside it. That helper acts only on words you typed yourself in Claude Desktop in the last 24 hours, one
   action per go-ahead (Benny, 2026-10-21: "sounds good."; for deletes, trash, sharing and calendar changes he picked
-  "On your words"). Reading, searching and new drafts stay free. Your own sessions outside the org folders are not
+  "On your words"). In Career Catchers a calendar change needs no words since 2026-10-22 (`CALENDAR_FREE`; Benny,
+  in that team's thread: "not needed for calendar. yall have been doing a good job."): it is still held, and the
+  refusal names the helper's plain run, `node "<Career Catchers>\google-tools.mjs" "<the change>"`, which changes
+  only the events a request names. Other teams keep his words for calendar changes until he says otherwise.
+  Reading, searching and new drafts stay free. Your own sessions outside the org folders are not
   held. Sends from a browser page (LinkedIn, Gmail's own page) cannot be held this way; they follow rule 1 of the
   org's `CLAUDE.md`.
 
