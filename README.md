@@ -61,6 +61,15 @@ The org folder's `.claude/settings.json` runs three hooks (`org-folder.mjs` puts
   Paperclip's own Claude type runs them), the agent goes ahead without asking; off, only its Paperclip calls go
   ahead (curl to this Paperclip's API and `paperclip-card`, with echo, printf, jq, head, tail or sleep alongside)
   and everything else asks as usual. A change in Paperclip applies from the agent's next tool call.
+  Whatever the switch, no conversation in the folder sends, replies, forwards, deletes, trashes, shares or changes a
+  calendar in your claude.ai Gmail, Calendar or Drive itself (`WORDS_ONLY`; a claude.ai connector of another name is
+  held by the same tool names): the call is refused with the command that does it on your words,
+  `node "<Career Catchers>\google-tools.mjs" --benny-said "<your exact words>" "<what to do>"`, found in the org folder
+  or one beside it. That helper acts only on words you typed yourself in Claude Desktop in the last 24 hours, one
+  action per go-ahead (Benny, 2026-10-21: "sounds good."; for deletes, trash, sharing and calendar changes he picked
+  "On your words"). Reading, searching and new drafts stay free. Your own sessions outside the org folders are not
+  held. Sends from a browser page (LinkedIn, Gmail's own page) cannot be held this way; they follow rule 1 of the
+  org's `CLAUDE.md`.
 
 The turn also opens with what happened in Paperclip since the agent's last turn, and, once, with the agent's
 instructions when they were edited in Paperclip since the conversation got them.

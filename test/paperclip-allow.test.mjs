@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { paperclipOnly } from '../hooks/paperclip-allow.mjs';
+import { checkedPathFor, paperclipOnly, wordsOnly } from '../hooks/paperclip-allow.mjs';
 
 const HOOK = fileURLToPath(new URL('../hooks/paperclip-allow.mjs', import.meta.url));
 const CARD = HOOK.replace(/paperclip-allow\.mjs$/, 'paperclip-card.mjs').replace(/\\/g, '/');
@@ -122,4 +122,69 @@ test("Paperclip's Skip permissions switch decides, per agent, from the agent fil
   }
   const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'not-an-org-'));
   assert.equal(await hook({ ...anything[0], cwd: outside, transcript_path: transcript('chief-of-staff') }), '', 'outside any org folder: left alone');
+});
+
+test("sends, deletes, trash, sharing and calendar changes are Benny's words only, in both names Desktop gives his connectors", () => {
+  const held = [
+    'mcp__claude_ai_Gmail__send_message', 'mcp__claude_ai_Gmail__reply', 'mcp__claude_ai_Gmail__forward',
+    'mcp__claude_ai_Gmail__delete_draft', 'mcp__claude_ai_Gmail__delete_label', 'mcp__claude_ai_Gmail__trash_message', 'mcp__claude_ai_Gmail__trash_thread',
+    'mcp__claude_ai_Google_Calendar__create_event', 'mcp__claude_ai_Google_Calendar__update_event',
+    'mcp__claude_ai_Google_Calendar__delete_event', 'mcp__claude_ai_Google_Calendar__respond_to_event',
+    'mcp__claude_ai_Google_Drive__share_file', 'mcp__claude_ai_Google_Drive__trash_file',
+    // The same connectors as this PC's own Claude Desktop sessions name them, by id (2026-10-21).
+    'mcp__d53a8954-d6e2-4a66-9a34-6a88db932b6f__send_message', 'mcp__d94b3193-c5bb-42bd-a0a0-05f496062b6a__create_event',
+    'mcp__4c82cea1-401d-4a75-b14b-53f6e57fc474__share_file',
+    // Another claude.ai connector that sends is held too: rule 1 stages everything.
+    'mcp__claude_ai_Slack__send_message',
+  ];
+  for (const tool of held) assert.equal(wordsOnly(tool), true, tool);
+  const free = [
+    'mcp__claude_ai_Gmail__search_threads', 'mcp__claude_ai_Gmail__get_thread', 'mcp__claude_ai_Gmail__create_draft',
+    'mcp__claude_ai_Gmail__update_draft', 'mcp__claude_ai_Gmail__label_thread', 'mcp__claude_ai_Gmail__untrash_message',
+    'mcp__claude_ai_Google_Calendar__list_events', 'mcp__claude_ai_Google_Calendar__suggest_time',
+    'mcp__claude_ai_Google_Drive__read_file_content', 'mcp__claude_ai_Google_Drive__create_file',
+    'mcp__d53a8954-d6e2-4a66-9a34-6a88db932b6f__create_draft', 'mcp__1a59c906-04da-521d-bda7-7f71b9f9e01c__update',
+    // Not his connectors: Desktop's own conversation messages, the browsers, a tool with the same word inside.
+    'mcp__ccd_session_mgmt__send_message', 'mcp__claude-in-chrome__navigate', 'mcp__Claude_Browser__computer',
+    'mcp__claude_ai_Cloudflare_Developer_Platform__d1_database_delete', 'Bash', 'send_message', '', undefined,
+  ];
+  for (const tool of free) assert.equal(wordsOnly(tool), false, String(tool));
+});
+
+test('a held call is refused for every conversation in the folder, and told the checked path', async () => {
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'orgs-'));
+  const org = (name, skip) => {
+    const agents = path.join(parent, name, '.claude', 'agents');
+    fs.mkdirSync(agents, { recursive: true });
+    fs.writeFileSync(path.join(agents, 'chief-of-staff.md'), `---\nname: chief-of-staff\ndescription: "x"\npaperclip-skip-permissions: ${skip}\npaperclip-agent-id: ${name.split(' ')[0].toLowerCase()}-cos\n---\n\nHi.\n`);
+    return path.join(parent, name);
+  };
+  const shea = org('Shea Technologies', true);
+  const catchers = org('Career Catchers', true);
+  fs.writeFileSync(path.join(catchers, 'google-tools.mjs'), '// the checked path\n');
+  assert.equal(checkedPathFor(shea), path.join(catchers, 'google-tools.mjs'), 'found beside the org folder');
+  assert.equal(checkedPathFor(catchers), path.join(catchers, 'google-tools.mjs'), 'its own first');
+  assert.equal(checkedPathFor(null), null);
+
+  const hook = (input) => new Promise((resolve) => {
+    const child = execFile(process.execPath, [HOOK, '--api', api, '--chief', 'shea-cos'], (e, stdout) => resolve(stdout));
+    child.stdin.end(JSON.stringify({ hook_event_name: 'PreToolUse', ...input }));
+  });
+  const send = { tool_name: 'mcp__claude_ai_Gmail__send_message', tool_input: { to: ['x@example.com'], subject: 'Hi', body: 'Hi' } };
+  const transcript = path.join(shea, 'cos.jsonl');
+  fs.writeFileSync(transcript, `${JSON.stringify({ type: 'agent-setting', agentSetting: 'chief-of-staff' })}\n`);
+  for (const where of [{ cwd: shea, transcript_path: transcript }, { cwd: path.join(shea, '.claude') }, { cwd: shea }]) {
+    const out = JSON.parse(await hook({ ...send, ...where }));
+    assert.equal(out.hookSpecificOutput.permissionDecision, 'deny', `refused even with Skip permissions on: ${where.cwd}`);
+    assert.ok(out.hookSpecificOutput.permissionDecisionReason.includes(`node "${path.join(catchers, 'google-tools.mjs')}" --benny-said`), out.hookSpecificOutput.permissionDecisionReason);
+  }
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'not-an-org-'));
+  const away = JSON.parse(await hook({ ...send, cwd: outside }));
+  assert.equal(away.hookSpecificOutput.permissionDecision, 'deny', 'a conversation that moved out of the folder is still held');
+  assert.match(away.hookSpecificOutput.permissionDecisionReason, /node google-tools\.mjs --benny-said/);
+  const draft = JSON.parse(await hook({ tool_name: 'mcp__claude_ai_Gmail__create_draft', tool_input: {}, cwd: shea, transcript_path: transcript }));
+  assert.equal(draft.hookSpecificOutput.permissionDecision, 'allow', 'a draft is still free');
 });

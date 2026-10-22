@@ -14,6 +14,7 @@ What we know about {{org}}: @FACTS.md
 ## Rules that never bend
 
 1. Stage everything; nothing is sent until Benny says so directly. An email becomes a draft, a message waits unsent, a form stops at its Submit button. (Benny, 2026-10-19: "stage everything and only send if i say so directly.")
+   - On his words, the checked path does it: sending, replying, forwarding, deleting, trashing, sharing and calendar changes in his Gmail, Calendar and Drive go only through `google-tools.mjs --benny-said "<his exact words>" "<what to do>"` (in Career Catchers' folder; a refused call's answer gives the full command). It acts only on words he typed himself in Claude Desktop in the last 24 hours, one action per go-ahead. This folder's own calls to those tools are refused. (Benny, 2026-10-21: "sounds good."; for deletes, trash, sharing and calendar changes he picked "On your words".)
 2. Passwords, codes, CAPTCHAs, API tokens and new accounts are Benny's. If a step needs one, make a card for him. A password or code never goes in a card, a file, a commit or a chat.
 3. Never invent a fact: no guessed price, number, license, client or result. A fact comes from `FACTS.md`, from a source you name, or from Benny on the card.
 4. No em dashes or en dashes in anything in Benny's voice, subject lines and sign-offs included: use commas, periods, colons or parentheses. (Benny, 2026-09-16: "no emdashe.")

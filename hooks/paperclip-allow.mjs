@@ -6,12 +6,50 @@
 //   - Any other conversation in the folder gets its Paperclip calls approved and nothing else: curl to this
 //     Paperclip's own API, and hooks/paperclip-card.mjs, with echo, printf, jq, head, tail or sleep alongside. Anything
 //     else gets no answer from this hook and is decided as usual.
+//   - No conversation here, whatever its switch, sends, deletes, trashes, shares or changes a calendar in Benny's
+//     Gmail, Calendar or Drive itself (WORDS_ONLY): the call is refused with the checked path that does it on his words.
 // Turning the switch in Paperclip applies from the agent's next tool call (the plugin rewrites the agent file).
 //   node paperclip-allow.mjs --api <Paperclip URL> [--chief <Chief of Staff id>]
+import fs from 'node:fs';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const CARD_TOOL = fileURLToPath(new URL('./paperclip-card.mjs', import.meta.url));
 const norm = (p) => String(p).replace(/\\/g, '/').toLowerCase();
+
+// What only Benny's own words open (2026-10-21). Asked who may act once the team's own calls are held, he answered
+// "sounds good." to sends going "through the checked path (google-tools.mjs --benny-said ...) ... One send per
+// go-ahead.", and picked "On your words" for deleting, trashing, sharing and calendar changes. The checked path is
+// google-tools.mjs in Career Catchers' folder: it acts only on words he typed himself in Claude Desktop in the last 24
+// hours, one action per go-ahead. Claude Desktop names his connectors claude_ai_<Name> in the team's conversations and
+// by their ids (mcp__<uuid>__) elsewhere; a connector of any other name is held by the tool's name alone.
+export const WORDS_ONLY = {
+  Gmail: ['send_message', 'reply', 'forward', 'delete_draft', 'delete_label', 'trash_message', 'trash_thread'],
+  Google_Calendar: ['create_event', 'update_event', 'delete_event', 'respond_to_event'],
+  Google_Drive: ['share_file', 'trash_file'],
+};
+const HELD = [...new Set(Object.values(WORDS_ONLY).flat())];
+const CONNECTOR_TOOL = /^mcp__(?:claude_ai_([A-Za-z0-9_]+?)|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})__([a-z0-9_]+)$/;
+
+/** True for a call to one of Benny's claude.ai connectors that only his own words open. */
+export function wordsOnly(toolName) {
+  const m = CONNECTOR_TOOL.exec(String(toolName ?? ''));
+  return Boolean(m) && (WORDS_ONLY[m[1]] ?? HELD).includes(m[2]);
+}
+
+/** google-tools.mjs in the org folder or in one beside it (his orgs share one parent folder); null when none is. */
+export function checkedPathFor(org) {
+  if (!org) return null;
+  let beside = [];
+  try { beside = fs.readdirSync(path.dirname(org), { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => path.join(path.dirname(org), d.name)); } catch { /* none */ }
+  return [org, ...beside].map((d) => path.join(d, 'google-tools.mjs')).find((f) => fs.existsSync(f)) ?? null;
+}
+
+/** What a held call is told: the checked path, with the full command when google-tools.mjs was found. */
+export function heldReason(tool) {
+  const command = `node ${tool ? `"${tool}"` : 'google-tools.mjs'} --benny-said "<his exact words>" "<what to do>"`;
+  return `Held in Benny's team folders (Benny, 2026-10-21): sending, replying, forwarding, deleting, trashing, sharing and calendar changes happen only on his own words, through the checked path: ${command}. It acts only if he typed those words himself in Claude Desktop in the last 24 hours, one action per go-ahead. Without his words, stage it (a draft, or the change written on a card) and ask him.`;
+}
 
 /** Shell words of one simple command, quotes removed; null when it uses anything this hook does not judge. */
 function splitCommand(command) {
@@ -132,7 +170,8 @@ export function paperclipOnly(command, { api }) {
 }
 
 /** The hook's answer for one tool call, or null to leave it to the usual question. */
-export function decide(input, { api, chiefId = null, agentFor }) {
+export function decide(input, { api, chiefId = null, agentFor, checkedPath = () => null }) {
+  if (wordsOnly(input?.tool_name)) return { permissionDecision: 'deny', permissionDecisionReason: heldReason(checkedPath(input?.cwd)) };
   const agent = agentFor({ cwd: input?.cwd, transcriptPath: input?.transcript_path, agentType: input?.agent_type, chiefId });
   if (agent?.skip) return { permissionDecision: 'allow', permissionDecisionReason: 'Skip permissions is on for this agent in Paperclip (ClaudeDesktopPaperClip)' };
   if (input?.tool_name === 'Bash' && paperclipOnly(input.tool_input?.command, { api })) {
@@ -142,7 +181,7 @@ export function decide(input, { api, chiefId = null, agentFor }) {
 }
 
 if (process.argv[1] && norm(fileURLToPath(import.meta.url)) === norm(process.argv[1])) {
-  const { conversationAgent, hookArgs, hookInput, skipsPermissionsIn } = await import('../paperclip-access.mjs');
+  const { conversationAgent, hookArgs, hookInput, orgFolderOf, skipsPermissionsIn } = await import('../paperclip-access.mjs');
   const { api, chiefId } = hookArgs();
   const input = await hookInput();
   const agentFor = (where) => {
@@ -150,6 +189,7 @@ if (process.argv[1] && norm(fileURLToPath(import.meta.url)) === norm(process.arg
     const agent = conversationAgent(where);
     return agent ? { ...agent, skip: skipsPermissionsIn(agent.definition) } : null;
   };
-  const answer = input ? decide(input, { api, chiefId, agentFor }) : null;
+  const checkedPath = (cwd) => (cwd ? checkedPathFor(orgFolderOf(cwd)) : null);
+  const answer = input ? decide(input, { api, chiefId, agentFor, checkedPath }) : null;
   if (answer) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', ...answer } }));
 }
