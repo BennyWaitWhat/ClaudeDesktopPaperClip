@@ -31,5 +31,17 @@ foreach ($id in $pids) {
 $deadline = (Get-Date).AddSeconds(60)
 while ((Get-Date) -lt $deadline -and (Get-Process -Id $pids -ErrorAction SilentlyContinue)) { Start-Sleep -Seconds 1 }
 if (Get-Process -Id $pids -ErrorAction SilentlyContinue) { Write-Host 'Paperclip is still shutting down after a minute.'; exit 1 }
-$left = @(Get-CimInstance Win32_Process -Filter "Name='postgres.exe'" | Where-Object { $_.CommandLine -match 'embedded-postgres' })
-Write-Host "Paperclip stopped.$(if ($left.Count) { " $($left.Count) of its database processes are still closing." })"
+
+# Its database closes by itself. A database worker whose main database process is already gone is left behind for
+# good, and it keeps the next start from opening the database (2026-10-21: one "io_worker" stayed after the stop for
+# the 2026.1012.0 update). Such workers are stopped; a main database process still closing is left to finish.
+$deadline = (Get-Date).AddSeconds(60)
+do {
+  $left = @(Get-CimInstance Win32_Process -Filter "Name='postgres.exe'" | Where-Object { $_.CommandLine -match 'embedded-postgres' })
+  $orphans = @($left | Where-Object { $_.CommandLine -match '--forkchild' -and -not (Get-Process -Id $_.ParentProcessId -ErrorAction SilentlyContinue) })
+  if ($left.Count -eq $orphans.Count) { break }
+  Start-Sleep -Seconds 2
+} while ((Get-Date) -lt $deadline)
+foreach ($o in $orphans) { Stop-Process -Id $o.ProcessId -Force -ErrorAction SilentlyContinue }
+$still = $left.Count - $orphans.Count
+Write-Host "Paperclip stopped.$(if ($orphans.Count) { " Stopped $($orphans.Count) database worker(s) it left behind." })$(if ($still) { " $still of its database processes are still closing." })"

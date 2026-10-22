@@ -74,8 +74,10 @@ or in_progress moves to backlog with the note "Waiting for my next turn in Claud
 neither retries the wake nor sweeps the card as stranded). A card a Desktop turn is working right now is left
 alone. Handing work between agents follows the same rule: a card in backlog, plus a message to the other
 agent's Desktop conversation. SendMessage reaches a Desktop conversation only through Claude Desktop's own
-messaging tool (`mcp__ccd_session_mgmt__send_message`), so every agent's tool list keeps it, with Bash and
-SendMessage; a conversation gets a changed tool list when it next starts.
+messaging tool (`mcp__ccd_session_mgmt__send_message`), so a tool list always keeps it, with Bash and
+SendMessage; a conversation gets a changed tool list when it next starts. Every agent has every tool unless a list is
+set for it (Settings > Org folder > Tools in Claude Desktop); none is set, by Benny's choice (2026-10-21: "I want
+everyone to have full.").
 
 ## Routines run from Claude Desktop scheduled tasks
 
@@ -116,6 +118,28 @@ Paperclip (`org-sync.mjs`), at once when Paperclip's live activity feed shows an
 Older orgs stay as they are until you move them: Settings > Org folder > **Move to Claude Desktop**. Until then
 Paperclip's wakes for their Claude agents stop with a note saying so.
 
+## A new org sets itself up
+
+Making an org in Paperclip (the org switcher > **Create organization**, which opens the setup wizard at
+`/onboarding`) is all it takes; nothing else needs doing by hand (`house-setup.mjs`):
+
+- The org's folder gets the house `CLAUDE.md` (the team's rules, loaded in every conversation there) and `FACTS.md`
+  (what is known about the org), with its name filled in. A file already there is never overwritten.
+- Its Chief of Staff, the wizard's first agent or whoever reports to no one, gets the house job file (it works out
+  the team with you, one question at a time, and hires on your go through Paperclip's `agent-hires`), Opus 5.5 at max
+  effort, every tool, and the check of your steps, whatever the wizard gave it.
+- Every later hire gets the house model and effort, and the org folder, where they were left unset; a hire's own
+  choices stay.
+- On its first turn the Chief of Staff files the team's conversations in a sidebar section named after the org,
+  and files each hire's there after.
+
+The house way is a template folder, `<instance>/claude-desktop/org-template` (`CLAUDE.md`, `FACTS.md`,
+`chief-of-staff.md` and `defaults.json` for the model and effort), copied from this repo's `templates/org` the first
+time it is needed. Edit it there to change every org made after. `{{org}}`, `{{folder}}`, `{{folder_json}}` (the
+folder as it goes inside JSON) and `{{date}}` are filled in. Each agent is set up once: one Paperclip refuses to save
+is tried again at the next sync and gets no conversation until then, since Desktop keeps the model a conversation was
+made with. Orgs on Claude Desktop before this existed (2026-10-21) were adopted as they are.
+
 Settings > Org folder, in each org:
 
 - **This org's folder**: change it, or give an older org one.
@@ -144,8 +168,11 @@ A page it does not recognize is left exactly as it was.
 ## The setup wizard's Claude check
 
 Before it hires an org's first agent, Paperclip's wizard runs a short Claude check (the adapter's
-`testEnvironment`). It runs with Claude Desktop's Claude Code and your own setup. The wizard also asks for a
-Claude connection per org; the Desktop agents do not use it.
+`testEnvironment`). It runs with Claude Desktop's Claude Code and your own setup, and, since only the sign-in is
+checked, on `claude-haiku-5-5` at low effort without Chrome; a hello that fails with Desktop's copy is tried again
+with the `claude` on PATH. (Paperclip 2026.1012.0 runs the hello with Paperclip's default model when none is set,
+`claude-opus-5`, which Claude refuses here.) The wizard also asks for a Claude connection per org; the Desktop agents
+do not use it.
 
 That connection ("Connect a model") reads command-line Claude's sign-in from `~/.claude/.credentials.json` and
 never renews it. The token there lasts 8 hours and only Claude Code renews it, when it runs, so with the agents in
@@ -200,7 +227,8 @@ remove it. Settings > Plugins: disable or remove Claude Desktop (org folders sta
 - Windows has no Paperclip service (`paperclipai service` answers "not supported on win32"), so Paperclip runs only
   while something has started it. `scripts/start-paperclip.ps1` starts it, logging to the instance's
   `logs/paperclip-server.log`, and does nothing if it is already up; run through `conhost.exe --headless` it has no
-  window at all. `scripts/stop-paperclip.ps1` stops it cleanly (Ctrl+C to its console, so its database closes too).
+  window at all. `scripts/stop-paperclip.ps1` stops it cleanly (Ctrl+C to its console, so its database closes too,
+  and a database worker it leaves behind, which would block the next start, is stopped).
   Start it from Windows (a shortcut, Explorer, the Startup folder), never from a Claude session's shell: started
   there, it stops when Claude Desktop quits (it did on 2026-10-14 at 7:01 PM). On Benny's PC, `Paperclip.lnk` in his
   Startup folder (`shell:startup`) starts it hidden at every logon since 2026-10-15; deleting it undoes that.
