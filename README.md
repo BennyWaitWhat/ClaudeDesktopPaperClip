@@ -242,6 +242,11 @@ remove it. Settings > Plugins: disable or remove Claude Desktop (org folders sta
   `logs/paperclip-server.log`, and does nothing if it is already up; run through `conhost.exe --headless` it has no
   window at all. `scripts/stop-paperclip.ps1` stops it cleanly (Ctrl+C to its console, so its database closes too,
   and a database worker it leaves behind, which would block the next start, is stopped).
+  A stop Windows forces (a Start-menu shutdown, an installer's Restart Manager) can leave the database's lock
+  `db/postmaster.pid` behind; once its process number belongs to another program, Paperclip refuses its own database
+  (2026-10-26, 9:23 AM). The start script sets such a lock aside (`postmaster.pid.stale-<date-time>`, never deleted)
+  when no Paperclip database is running, with one log line; a running database keeps its lock, and a Paperclip that
+  is running but not answering yet is not started twice (CAR-598).
   Start it from Windows (a shortcut, Explorer, the Startup folder), never from a Claude session's shell: started
   there, it stops when Claude Desktop quits (it did on 2026-10-14 at 7:01 PM). On Benny's PC, `Paperclip.lnk` in his
   Startup folder (`shell:startup`) starts it hidden at every logon since 2026-10-15; deleting it undoes that.
