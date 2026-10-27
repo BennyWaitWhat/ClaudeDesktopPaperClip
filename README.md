@@ -55,7 +55,7 @@ The engine coordinates three decoupled subsystems across the local operating sys
 
 ---
 
-## Technical Deep-Dives
+## Key Technical Challenges & Engineering Decisions
 
 ### 1. Zero-Dependency Native Architecture
 
