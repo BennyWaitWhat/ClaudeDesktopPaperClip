@@ -61,8 +61,24 @@ const ANY_CARD = /\b[A-Z][A-Z0-9]{1,9}-\d{1,7}\b/g;
 const escapeRe = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
- * The first card `text` names that Paperclip knows: { id, identifier }, or null. With `prefix` (the org's own, e.g.
- * LEM) only that org's cards count, so "UTF-8" or another org's card never ties a run to the wrong card.
+ * A card's open blockers, from Paperclip's own record of it: [{ identifier, title, status }]. A blocker counts until
+ * it is done (Paperclip keeps a cancelled one open too). Paperclip starts no run on a card that has one ("Blocked
+ * descendants should stay idle until the final blocker resolves", its heartbeat service); only a comment or a
+ * mention gets through. A turn that asked for one was left with no run at all, so every write after it was refused
+ * (Career Catchers, 2026-10-26: CAR-631).
+ */
+export const openBlockers = (issue) => (Array.isArray(issue?.blockedBy) ? issue.blockedBy : [])
+  .filter((b) => b && b.status !== 'done')
+  .map((b) => ({ identifier: b.identifier ?? b.id, title: String(b.title ?? '').replace(/\s+/g, ' ').trim(), status: b.status ?? null }));
+
+/** 'LEM-9 waits on LEM-12 "Send: the receipt" (todo)', for a card with open blockers. */
+export const waitText = (card) => `${card.identifier} waits on ${card.waitsOn
+  .map((b) => `${b.identifier}${b.title ? ` "${b.title.slice(0, 70)}"` : ''}${b.status ? ` (${b.status})` : ''}`).join(', ')}`;
+
+/**
+ * The first card `text` names that Paperclip knows: { id, identifier, waitsOn } (waitsOn: its open blockers), or null.
+ * With `prefix` (the org's own, e.g. LEM) only that org's cards count, so "UTF-8" or another org's card never ties a
+ * run to the wrong card.
  */
 export async function namedCard({ api, token, text, prefix = null }) {
   const seen = new Set();
@@ -71,7 +87,7 @@ export async function namedCard({ api, token, text, prefix = null }) {
     if (seen.has(identifier) || seen.size >= 3) continue;
     seen.add(identifier);
     const found = await paperclipCall(api, `/api/issues/${identifier}`, { token });
-    if (found.status === 200 && found.json?.id) return { id: found.json.id, identifier: found.json.identifier ?? identifier };
+    if (found.status === 200 && found.json?.id) return { id: found.json.id, identifier: found.json.identifier ?? identifier, waitsOn: openBlockers(found.json) };
   }
   return null;
 }

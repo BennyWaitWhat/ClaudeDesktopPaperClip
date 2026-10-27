@@ -39,6 +39,11 @@ async function fakePaperclip({ quick = false, folds = [], cards = [], agents = [
     if (req.method === 'POST' && req.url === '/api/companies/org-1/issues') return send(201, { id: 'card-10', identifier: 'LEM-10', ...JSON.parse(body) });
     if (req.method === 'POST' && req.url === '/api/issues/card-10/checkout') return send(200, { id: 'card-10', status: 'in_progress' });
     if (req.url === '/api/issues/LEM-8') return send(200, { id: 'card-8', identifier: 'LEM-8' });
+    // CAR-631: LEM-9 waits on an open blocker (Paperclip skips its wakes); LEM-13's blocker is done; LEM-15's wakes are
+    // refused for another reason
+    if (req.url === '/api/issues/LEM-9') return send(200, { id: 'card-9', identifier: 'LEM-9', status: 'blocked', blockedBy: [{ id: 'card-12', identifier: 'LEM-12', title: 'Send: the receipt', status: 'todo' }] });
+    if (req.url === '/api/issues/LEM-13') return send(200, { id: 'card-13', identifier: 'LEM-13', status: 'blocked', blockedBy: [{ id: 'card-14', identifier: 'LEM-14', title: 'Answer: lemons or limes', status: 'done' }] });
+    if (req.url === '/api/issues/LEM-15') return send(200, { id: 'card-15', identifier: 'LEM-15', status: 'todo', blockedBy: [] });
     if (req.method === 'GET' && req.url === '/api/issues/card-8') return send(200, { id: 'card-8', identifier: 'LEM-8', status: 'done', responsibleUserId: 'local-board' });
     if (req.method === 'POST' && req.url === '/api/issues/card-8/children') return send(201, { id: 'card-11', identifier: 'LEM-11', parentId: 'card-8', ...JSON.parse(body) });
     if (req.method === 'PATCH' && req.url === '/api/issues/card-8') return send(200, { id: 'card-8', ...JSON.parse(body) });
@@ -47,6 +52,9 @@ async function fakePaperclip({ quick = false, folds = [], cards = [], agents = [
     if (req.url.startsWith('/api/issues/')) return send(404, { error: 'Issue not found' });
     if (req.url.startsWith('/api/heartbeat-runs/')) return send(200, { id: last, status: runs.get(last) ?? 'succeeded' });
     if (req.url === '/api/agents/agent-1/wakeup') {
+      // as Paperclip's own wake route answers a wake it skips: 202, no run
+      const scoped = (body ? JSON.parse(body) : {})?.payload?.issueId;
+      if (scoped === 'card-9' || scoped === 'card-15') return send(202, { status: 'skipped' });
       const fold = folds.shift();
       if (fold) return send(202, { id: fold.id, agentId: 'agent-1', status: fold.status });
       const id = `run-${calls.length}`;
@@ -263,6 +271,97 @@ test("paperclip-card moves the rest of a turn to the card's own run", async () =
     assert.equal(unknown.code, 1);
     assert.match(unknown.stderr, /no card LEM-404/);
     assert.equal((await run(CARD_TOOL, ['LEM-8'], { env: { ...env, CLAUDE_DESKTOP_SESSION_ID: '' } })).code, 2, 'outside an agent conversation');
+  } finally {
+    paperclip.close();
+  }
+});
+
+// Career Catchers, 2026-10-26 (CAR-631): Paperclip starts no run on a card that waits on an open blocker, so a turn
+// whose message named one, or that ran paperclip-card on one, was left with no run, and every write was refused.
+test('a turn about a card that waits on an open blocker still gets a run, on no card, and is told why', async () => {
+  const paperclip = await fakePaperclip();
+  try {
+    const instance = tmp('instance');
+    const { org, transcript } = orgFolder();
+    const input = { hook_event_name: 'UserPromptSubmit', session_id: 'conv-9', transcript_path: transcript, cwd: org, prompt: 'Where does LEM-9 stand?' };
+    const out = JSON.parse((await run(HOOK, ['--api', paperclip.api, '--instance', instance], { stdin: input })).stdout).hookSpecificOutput.additionalContext;
+    const wakes = paperclip.calls.filter((c) => c.url === '/api/agents/agent-1/wakeup');
+    assert.equal(wakes.length, 1, 'one wake');
+    assert.equal(wakes[0].body.payload, undefined, 'not on the waiting card, which Paperclip would skip');
+    const runId = fs.readFileSync(runIdFile(turnsDir(instance), 'conv-9'), 'utf8');
+    assert.match(runId, /^run-\d+$/, 'the turn has a run');
+    assert.match(out, /LEM-9 waits on LEM-12 "Send: the receipt" \(todo\), so Paperclip starts no run on LEM-9 until that is done/);
+    assert.match(out, /then comment on LEM-9 from there: it counts as one of the 20 other cards/);
+    assert.match(out, /Do not run node ".*paperclip-card\.mjs" LEM-9 while it waits/);
+    assert.match(out, new RegExp(`Paperclip run ${runId} records this turn \\(on no card yet\\)`));
+    assert.doesNotMatch(out, /is the agent paused/);
+  } finally {
+    paperclip.close();
+  }
+});
+
+test('a turn whose card Paperclip refuses for another reason still gets a run, on no card', async () => {
+  const paperclip = await fakePaperclip();
+  try {
+    const instance = tmp('instance');
+    const { org, transcript } = orgFolder();
+    const input = { hook_event_name: 'UserPromptSubmit', session_id: 'conv-15', transcript_path: transcript, cwd: org, prompt: 'Please take LEM-15' };
+    const out = JSON.parse((await run(HOOK, ['--api', paperclip.api, '--instance', instance], { stdin: input })).stdout).hookSpecificOutput.additionalContext;
+    const wakes = paperclip.calls.filter((c) => c.url === '/api/agents/agent-1/wakeup');
+    assert.deepEqual(wakes.map((w) => w.body.payload ?? null), [{ issueId: 'card-15' }, null], 'the card first, then a run on no card');
+    const runId = fs.readFileSync(runIdFile(turnsDir(instance), 'conv-15'), 'utf8');
+    assert.match(out, /Paperclip refused a run on LEM-15, so this turn runs on no card instead/);
+    assert.match(out, new RegExp(`Paperclip run ${runId} records this turn \\(on no card yet\\)`));
+  } finally {
+    paperclip.close();
+  }
+});
+
+test('paperclip-card never moves a turn to a card that waits on an open blocker, and a refused run still leaves the turn a run', async () => {
+  const paperclip = await fakePaperclip({ quick: true });
+  try {
+    const instance = tmp('instance');
+    const { transcript } = orgFolder();
+    const dir = turnsDir(instance);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(turnFile(dir, 'run-on-8'), JSON.stringify({ runId: 'run-on-8', sessionId: 'conv-1', transcript, offset: 0, issueId: 'card-8' }));
+    fs.writeFileSync(sessionFile(dir, 'conv-1'), JSON.stringify({ runId: 'run-on-8' }));
+    const env = {
+      PAPERCLIP_API_URL: paperclip.api, PAPERCLIP_API_KEY: 'pcp_key', PAPERCLIP_AGENT_ID: 'agent-1', PAPERCLIP_INSTANCE_ROOT: instance,
+      CLAUDE_DESKTOP_SESSION_ID: 'conv-1', CLAUDE_DESKTOP_TRANSCRIPT: transcript,
+    };
+    const wakes = () => paperclip.calls.filter((c) => c.url === '/api/agents/agent-1/wakeup');
+
+    const stay = await run(CARD_TOOL, ['LEM-9'], { env });
+    assert.equal(stay.code, 1);
+    assert.match(stay.stderr, /LEM-9 waits on LEM-12 "Send: the receipt" \(todo\), so Paperclip starts no run on LEM-9 until that is done/);
+    assert.match(stay.stderr, /This turn stays where it is \(run run-on-8\)\. Comment on LEM-9 from here/);
+    assert.equal(wakes().length, 0, 'no wake: Paperclip would skip it');
+    assert.ok(!fs.existsSync(doneFile(dir, 'run-on-8')), 'and the run the turn is on goes on');
+    assert.equal(JSON.parse(fs.readFileSync(sessionFile(dir, 'conv-1'), 'utf8')).runId, 'run-on-8');
+
+    // a turn on no card is told to move to a card that can run first
+    fs.writeFileSync(turnFile(dir, 'run-plain'), JSON.stringify({ runId: 'run-plain', sessionId: 'conv-1', transcript, offset: 0, issueId: null }));
+    fs.writeFileSync(sessionFile(dir, 'conv-1'), JSON.stringify({ runId: 'run-plain' }));
+    const plainStay = await run(CARD_TOOL, ['LEM-9'], { env });
+    assert.equal(plainStay.code, 1);
+    assert.match(plainStay.stderr, /This turn is on no card, and a run on no card can write to none: first move to one of your open cards that is not blocked/);
+    assert.equal(wakes().length, 0);
+
+    // a blocker that is done holds nothing: the turn moves as usual
+    const moved = await run(CARD_TOOL, ['LEM-13'], { env });
+    assert.equal(moved.code, 0, moved.stderr);
+    assert.deepEqual(wakes()[0].body.payload, { issueId: 'card-13' });
+    assert.ok(fs.existsSync(doneFile(dir, 'run-plain')), 'the run so far ends there');
+
+    // a run Paperclip refuses for another reason: the run so far has ended, and the turn gets a run on no card
+    const onThirteen = fs.readFileSync(runIdFile(dir, 'conv-1'), 'utf8');
+    const refused = await run(CARD_TOOL, ['LEM-15'], { env });
+    assert.equal(refused.code, 1);
+    const plainId = fs.readFileSync(runIdFile(dir, 'conv-1'), 'utf8');
+    assert.notEqual(plainId, onThirteen);
+    assert.match(refused.stderr, new RegExp(`Paperclip did not start a run on LEM-15[^]*This turn's run ${plainId} is on no card now`));
+    assert.deepEqual(wakes().slice(-2).map((w) => w.body.payload ?? null), [{ issueId: 'card-15' }, null], 'the card first, then a run on no card');
   } finally {
     paperclip.close();
   }

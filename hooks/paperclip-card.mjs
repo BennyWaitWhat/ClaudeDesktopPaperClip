@@ -14,7 +14,7 @@
 //   node paperclip-card.mjs --board "Send: the Taco Maco receipt to the bookkeeper" [--body "The draft is in Gmail"] [--under LEM-8]
 //   node paperclip-card.mjs --checked LEM-11 "The email to the bookkeeper is in Sent, 10/19 3:52 PM"
 import fs from 'node:fs';
-import { checkoutCard, closeCheckedCard, createBoardCard, createOwnCard, currentTurn, doneFile, namedCard, openTurnRun, sessionFile, turnFile, turnsDir } from '../desktop-turn.mjs';
+import { checkoutCard, closeCheckedCard, createBoardCard, createOwnCard, currentTurn, doneFile, namedCard, openTurnRun, sessionFile, turnFile, turnsDir, waitText } from '../desktop-turn.mjs';
 
 const env = process.env;
 const argv = process.argv.slice(2);
@@ -88,9 +88,18 @@ if (making) {
   }
   // Already on that card: nothing to move (ending the run here would leave the card to Paperclip's repair).
   const current = readJson(sessionFile(dir, env.CLAUDE_DESKTOP_SESSION_ID))?.runId;
-  if (current && readJson(turnFile(dir, current))?.issueId === found.id && !fs.existsSync(doneFile(dir, current))) {
+  const live = current && !fs.existsSync(doneFile(dir, current)) ? readJson(turnFile(dir, current)) : null;
+  if (live && live.issueId === found.id) {
     console.log(`This turn's run ${current} is already on ${found.identifier}, and $PAPERCLIP_RUN_ID holds it: nothing to move.`);
     process.exit(0);
+  }
+  // Paperclip starts no run on a card that waits on an open blocker: moving there would end this turn's run and open
+  // none, and every write after it would be refused (Career Catchers, 2026-10-26: CAR-631). The turn stays where it is.
+  if (found.waitsOn?.length) {
+    console.error(`${waitText(found)}, so Paperclip starts no run on ${found.identifier} until that is done. This turn stays where it is${live ? ` (run ${current})` : ''}. ${live?.issueId
+      ? `Comment on ${found.identifier} from here: it counts as one of the 20 other cards a run may write to.`
+      : `This turn is on no card, and a run on no card can write to none: first move to one of your open cards that is not blocked (node paperclip-card.mjs <CARD>), or make one with --new, then comment on ${found.identifier} from there.`}`);
+    process.exit(1);
   }
 }
 let offset = 0;
@@ -100,7 +109,14 @@ const runId = await openTurnRun({
   cwd: process.cwd(), dir, offset, issueId: found.id,
 });
 if (!runId) {
-  console.error(`${making ? `Made ${found.identifier} "${title}", but ` : ''}Paperclip did not start a run on ${found.identifier} (it may already have a run going, or Paperclip is not answering).`);
+  // The run so far has ended: a run on no card keeps the turn recorded, never a turn with none (CAR-631).
+  const plain = await openTurnRun({
+    api, token, agentId, sessionId: env.CLAUDE_DESKTOP_SESSION_ID, transcript: env.CLAUDE_DESKTOP_TRANSCRIPT,
+    cwd: process.cwd(), dir, offset, issueId: null,
+  });
+  console.error(`${making ? `Made ${found.identifier} "${title}", but ` : ''}Paperclip did not start a run on ${found.identifier} (it may already have a run going, or Paperclip is not answering).${plain
+    ? ` This turn's run ${plain} is on no card now, and $PAPERCLIP_RUN_ID holds it from your next command on: move to one of your open cards with node paperclip-card.mjs <CARD> before you write to a card.`
+    : ''}`);
   process.exit(1);
 }
 if (making) {

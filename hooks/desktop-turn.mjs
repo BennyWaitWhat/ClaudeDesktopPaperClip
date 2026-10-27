@@ -12,7 +12,7 @@
 //   node desktop-turn.mjs --api <Paperclip URL> --instance <Paperclip instance folder> [--chief <agent id>]
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { changedInstructions, currentTurn, endTurnRun, HELLO_ENV, namedCard, openCards, openCardsText, openTurnRun, turnPromptOrigin, turnsDir } from '../desktop-turn.mjs';
+import { changedInstructions, currentTurn, endTurnRun, HELLO_ENV, namedCard, openCards, openCardsText, openTurnRun, turnPromptOrigin, turnsDir, waitText } from '../desktop-turn.mjs';
 import { agentKey, conversationAgent, hookArgs, hookInput, insidePaperclipRun, paperclipCall } from '../paperclip-access.mjs';
 import { inboxText, takeInbox } from '../paperclip-wakes.mjs';
 
@@ -56,6 +56,8 @@ const instructions = hello ? null : changedInstructions(dir, input.session_id, w
 
 let runId = null;
 let card = null;
+let waiting = null;   // the card the message names, when it waits on an open blocker
+let refused = null;   // the card the message names, when Paperclip refused its run for another reason
 const key = await agentKey({ api, instance, agentId: who.agentId });
 if (key) {
   // Where this turn starts in the transcript: everything after this point is the turn.
@@ -64,9 +66,15 @@ if (key) {
   // Only the org's own cards count ("UTF-8" is not a card).
   const org = key.agent?.companyId ? await paperclipCall(api, `/api/companies/${key.agent.companyId}`, { token: key.token }) : null;
   card = await namedCard({ api, token: key.token, text: input.prompt, prefix: org?.json?.issuePrefix ?? null });
-  runId = await openTurnRun({
-    api, token: key.token, agentId: who.agentId, sessionId: input.session_id, transcript: input.transcript_path, cwd, dir, offset, issueId: card?.id ?? null,
+  // Paperclip starts no run on a card that waits on an open blocker (CAR-631): the turn's run opens on no card instead,
+  // so the turn is still recorded and can move to a card that can run.
+  if (card?.waitsOn?.length) { waiting = card; card = null; }
+  const open = (issueId) => openTurnRun({
+    api, token: key.token, agentId: who.agentId, sessionId: input.session_id, transcript: input.transcript_path, cwd, dir, offset, issueId,
   });
+  runId = await open(card?.id ?? null);
+  // Refused on the card for another reason: a run on no card all the same, never a turn with none.
+  if (!runId && card) { refused = card; card = null; runId = await open(null); }
 }
 
 // A turn on no card yet sees the agent's open cards, so a follow-up ("business, the Amex") finds its card.
@@ -80,11 +88,18 @@ const run = runId
       ? `It already runs on ${card.identifier}: comment on it and update it freely (and up to 20 other cards). To move to a different card, first leave ${card.identifier} done, in_review, blocked, or in backlog, then run ${tool} <CARD>.`
       : `Work goes on cards, so Paperclip shows it: if this message asks for anything to be done, recorded, tracked or followed up, put it on a card before you start. Continue one of your cards with ${tool} <CARD>, or make one with ${NEW_CARD} (assigned to you and in progress; the rest of the turn records on it). A step only the board can do (an answer, a decision, a send, a submit) gets its own card in their inbox, with ${BOARD_CARD}, and your card waits blocked on it. Only chat and quick answers need no card. ${openCardsText(mine)}`,
   ].join(' ')
-  : `Paperclip opened no run for this turn (${key ? 'it refused the wake; is the agent paused?' : 'Paperclip is not answering'}), so the turn is not recorded there and Paperclip calls that need a run will fail.`;
+  : `Paperclip opened no run for this turn (${key ? 'it refused the wake: the agent may be paused' : 'Paperclip is not answering'}), so the turn is not recorded there and Paperclip calls that need a run will fail.`;
+// Why the turn is not on the card its message names (CAR-631), and how to work on that card all the same.
+const elsewhere = waiting
+  ? `${waitText(waiting)}, so Paperclip starts no run on ${waiting.identifier} until that is done (Paperclip's own rule). ${runId ? 'This turn runs on no card instead.' : ''} To work on ${waiting.identifier}, move to one of your open cards that is not blocked with ${tool} <CARD>, or make one with ${NEW_CARD}, then comment on ${waiting.identifier} from there: it counts as one of the 20 other cards a run may write to. Do not run ${tool} ${waiting.identifier} while it waits.`
+  : refused
+    ? `Paperclip refused a run on ${refused.identifier}, so this turn ${runId ? 'runs on no card instead' : 'has no run'}. To work on it, move to one of your open cards with ${tool} <CARD>, or make one with ${NEW_CARD}, and comment on ${refused.identifier} from there.`
+    : '';
 
 const context = [
   hello ? '' : inboxText(takeInbox(instance, who.agentId)),
   instructions ? `Your instructions were edited in Paperclip since this conversation got them. From now on they are:\n\n${instructions}` : '',
+  elsewhere,
   run,
 ].filter(Boolean).join('\n\n');
 process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: context } }));
