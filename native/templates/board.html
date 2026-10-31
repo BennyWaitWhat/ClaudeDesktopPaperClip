@@ -1,0 +1,1016 @@
+<title>__ORG__ Board</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Public+Sans:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,600&display=swap">
+<style>
+/* One column shell: the mission on top, "Waiting on you" first, then Work, Goals, Team and Log under tabs; a card opens in a side sheet. */
+:root {
+  --bg: #f8f9fa;
+  --surface: #ffffff;
+  --raised: #f1f3f4;
+  --line: #dadce0;
+  --text: #202124;
+  --muted: #5f6368;
+  --accent: #1a73e8;
+  --on-accent: #ffffff;
+  --shadow: 0 1px 2px rgba(60, 64, 67, .16), 0 4px 14px rgba(60, 64, 67, .10);
+  --st-backlog: #80868b; --st-todo: #1a73e8; --st-in_progress: #e37400; --st-in_review: #9334e6;
+  --st-blocked: #d93025; --st-done: #1e8e3e; --st-cancelled: #bdc1c6;
+  --danger: #c5221f; --warn: #b06000;
+  --font-display: "Source Serif 4", Georgia, "Times New Roman", serif;
+  --font-ui: "Public Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #202124; --surface: #292a2d; --raised: #303134; --line: #3c4043; --text: #e8eaed; --muted: #9aa0a6;
+    --accent: #8ab4f8; --on-accent: #202124; --shadow: 0 1px 2px rgba(0, 0, 0, .45), 0 6px 18px rgba(0, 0, 0, .35);
+    --st-backlog: #9aa0a6; --st-todo: #8ab4f8; --st-in_progress: #fdd663; --st-in_review: #c58af9;
+    --st-blocked: #f28b82; --st-done: #81c995; --st-cancelled: #5f6368; --danger: #f28b82; --warn: #fdd663;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #202124; --surface: #292a2d; --raised: #303134; --line: #3c4043; --text: #e8eaed; --muted: #9aa0a6;
+  --accent: #8ab4f8; --on-accent: #202124; --shadow: 0 1px 2px rgba(0, 0, 0, .45), 0 6px 18px rgba(0, 0, 0, .35);
+  --st-backlog: #9aa0a6; --st-todo: #8ab4f8; --st-in_progress: #fdd663; --st-in_review: #c58af9;
+  --st-blocked: #f28b82; --st-done: #81c995; --st-cancelled: #5f6368; --danger: #f28b82; --warn: #fdd663;
+  color-scheme: dark;
+}
+/* The Oura colors, picked with the switch in the header; the status marks keep their theme's colors. */
+:root[data-palette="oura"] {
+  --bg: #f6f5f2; --surface: #ffffff; --raised: #efeef4; --line: #dcdbe6; --text: #1b1c31; --muted: #5d5e78;
+  --accent: #8a6a1f; --on-accent: #ffffff; color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-palette="oura"]:not([data-theme="light"]) {
+    --bg: #1b1c31; --surface: #23243c; --raised: #2b2c47; --line: #3a3b59; --text: #ecebf3; --muted: #a5a6c0;
+    --accent: #e3c27a; --on-accent: #1b1c31; color-scheme: dark;
+  }
+}
+:root[data-palette="oura"][data-theme="dark"] {
+  --bg: #1b1c31; --surface: #23243c; --raised: #2b2c47; --line: #3a3b59; --text: #ecebf3; --muted: #a5a6c0;
+  --accent: #e3c27a; --on-accent: #1b1c31; color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--text); font: 400 15px/1.55 var(--font-ui); -webkit-font-smoothing: antialiased; }
+h1, h2, h3, h4 { margin: 0; text-wrap: balance; }
+p { margin: 0; }
+button, input, select, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); }
+.small-text { font-size: 13px; }
+
+.shell {
+  max-width: 1240px; margin: 0 auto; display: grid; gap: 28px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 24px 56px;
+}
+
+/* Header */
+.top { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px 24px; align-items: start; }
+.eyebrow { font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+h1 { font-family: var(--font-display); font-weight: 600; font-size: clamp(28px, 4vw, 36px); line-height: 1.15; letter-spacing: -.01em; margin-top: 4px; }
+.mission { margin-top: 8px; max-width: 68ch; color: var(--muted); }
+.tools { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.counts { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: var(--muted); }
+.count-item { display: inline-flex; align-items: center; gap: 6px; }
+.count-item b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+@media (max-width: 640px) { .top { grid-template-columns: minmax(0, 1fr); } .tools { justify-content: flex-start; } }
+
+/* Buttons: outlined until pressed */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 34px; padding: 6px 14px;
+  border-radius: 999px; border: 1px solid var(--line); background: transparent; cursor: pointer; font-size: 14px;
+  font-weight: 500; white-space: nowrap; transition: background-color .12s, border-color .12s, color .12s;
+}
+.btn:hover { border-color: var(--muted); }
+.btn.primary { border-color: var(--accent); color: var(--accent); }
+.btn.primary:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.btn:active, .btn.primary:active, .btn.armed { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn.danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 55%, var(--line)); }
+.btn.danger.armed, .btn.danger:active { background: var(--danger); border-color: var(--danger); color: var(--on-accent); }
+.btn[disabled] { opacity: .5; cursor: default; }
+.btn.small { min-height: 30px; padding: 4px 12px; font-size: 13px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; padding: 2px; }
+.seg button { border: 0; background: transparent; padding: 4px 12px; border-radius: 999px; font-size: 13px; cursor: pointer; color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--raised); color: var(--text); font-weight: 500; }
+.link { border: 0; background: none; padding: 0; color: var(--accent); cursor: pointer; font-size: 13px; }
+.link:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+/* Status marks: the only color on the page besides the buttons */
+[data-st="backlog"] { --dot: var(--st-backlog); }
+[data-st="todo"] { --dot: var(--st-todo); }
+[data-st="in_progress"] { --dot: var(--st-in_progress); }
+[data-st="in_review"] { --dot: var(--st-in_review); }
+[data-st="blocked"] { --dot: var(--st-blocked); }
+[data-st="done"] { --dot: var(--st-done); }
+[data-st="cancelled"] { --dot: var(--st-cancelled); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dot, var(--muted)); flex: none; }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border: 1px solid var(--line); border-radius: 999px; font-size: 12px; font-weight: 500; white-space: nowrap; color: var(--text); }
+.chip { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.prio-urgent { color: var(--danger); font-weight: 600; }
+.prio-high { color: var(--warn); font-weight: 600; }
+
+/* Waiting on you */
+.waiting { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 18px 20px; display: grid; gap: 12px; box-shadow: var(--shadow); }
+.sec-head { display: flex; align-items: baseline; gap: 10px; }
+h2 { font-family: var(--font-display); font-weight: 600; font-size: 20px; line-height: 1.25; }
+.sec-head .n { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.wait-list { list-style: none; margin: 0; padding: 0; display: grid; }
+.wait { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 16px; align-items: center; padding: 12px 0; border-top: 1px solid var(--line); }
+.wait:first-child { border-top: 0; padding-top: 2px; }
+.wait-main { display: grid; gap: 4px; min-width: 0; }
+.wait-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; font-size: 12px; color: var(--muted); }
+.wait-title { font-weight: 600; font-size: 15px; border: 0; background: none; padding: 0; text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+.wait-title:hover { text-decoration: underline; text-underline-offset: 3px; }
+.wait-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+@media (max-width: 640px) { .wait { grid-template-columns: minmax(0, 1fr); } .wait-actions { justify-content: flex-start; } }
+.empty { color: var(--muted); font-size: 14px; }
+
+/* Tabs */
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+.tabs button {
+  border: 0; background: none; padding: 10px 14px; font-size: 14px; font-weight: 500; color: var(--muted); cursor: pointer;
+  border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap;
+}
+.tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+.tabs .n { font-size: 12px; color: var(--muted); margin-left: 4px; font-variant-numeric: tabular-nums; }
+.panel { display: grid; gap: 16px; min-width: 0; }
+
+/* Work */
+.columns-wrap { overflow-x: auto; padding-bottom: 4px; }
+.columns { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(196px, 1fr); gap: 12px; align-items: start; }
+.col { background: var(--raised); border-radius: 12px; padding: 10px; display: grid; gap: 8px; align-content: start; min-width: 0; }
+.col-head { display: flex; align-items: center; gap: 8px; padding: 2px 4px; }
+.col-head h3 { font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+.col-head .n { margin-left: auto; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.tiles { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.tile { width: 100%; text-align: left; display: grid; gap: 6px; padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; cursor: pointer; }
+.tile:hover { border-color: var(--muted); }
+.tile-id { font-family: var(--font-mono); font-size: 12px; color: var(--muted); display: flex; gap: 6px; min-width: 0; }
+.tile-goal { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-ui); }
+.tile-title { font-size: 14px; font-weight: 500; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.tile-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.col-empty { font-size: 13px; color: var(--muted); padding: 2px 4px 6px; }
+.col-more { justify-self: start; padding: 2px 4px; }
+.work-foot { display: grid; gap: 10px; justify-items: start; }
+.cancelled-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; width: 100%; max-width: 520px; }
+@media (max-width: 720px) { .columns { grid-auto-flow: row; grid-template-columns: minmax(0, 1fr); } }
+
+/* Goals */
+.mission-card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; display: grid; gap: 6px; }
+.mission-card .text { font-family: var(--font-display); font-size: 19px; line-height: 1.4; max-width: 62ch; }
+.goal-list { list-style: none; margin: 0; padding: 0; display: grid; }
+.goal { display: grid; grid-template-columns: minmax(0, 1fr) minmax(140px, 220px); gap: 6px 24px; padding: 14px 2px; border-top: 1px solid var(--line); align-items: center; }
+.goal h3 { font-size: 15px; font-weight: 600; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.goal p { color: var(--muted); font-size: 14px; max-width: 70ch; margin-top: 2px; }
+.progress { display: grid; gap: 6px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.bar { height: 6px; border-radius: 999px; background: var(--raised); overflow: hidden; }
+.bar span { display: block; height: 100%; width: 0; background: var(--st-done); border-radius: inherit; }
+@media (max-width: 640px) { .goal { grid-template-columns: minmax(0, 1fr); } }
+
+/* Team */
+.tree, .tree ul { list-style: none; margin: 0; padding: 0; }
+.tree ul { margin-left: 18px; padding: 10px 0 0 18px; border-left: 1px solid var(--line); display: grid; gap: 10px; }
+.tree li { position: relative; }
+.tree ul > li::before { content: ""; position: absolute; left: -18px; top: 24px; width: 14px; border-top: 1px solid var(--line); }
+.member { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: grid; gap: 4px; max-width: 640px; min-width: 0; }
+.member.owner { border-style: dashed; background: transparent; }
+.member-head { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+.member-name { font-weight: 600; }
+.member-title { color: var(--muted); font-size: 13px; }
+.member-job { font-size: 14px; }
+.member-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--muted); }
+.member-summary { font-size: 13px; overflow-wrap: anywhere; }
+
+/* Log */
+.log { list-style: none; margin: 0; padding: 0; display: grid; }
+.log-day { font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); padding: 16px 0 6px; }
+.log-day:first-child { padding-top: 0; }
+.log-row { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.log-row time { font-family: var(--font-mono); font-size: 12px; color: var(--muted); padding-top: 2px; font-variant-numeric: tabular-nums; }
+.log-row .what { overflow-wrap: anywhere; }
+.log-row .detail { display: block; color: var(--muted); font-size: 13px; }
+.ref { border: 0; background: none; padding: 0; font-family: var(--font-mono); font-size: .92em; color: var(--accent); cursor: pointer; }
+.ref:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+/* Card sheet and the new-card form */
+dialog { border: 0; padding: 0; color: var(--text); background: var(--surface); box-shadow: var(--shadow); }
+dialog::backdrop { background: rgb(0 0 0 / .45); }
+#sheet, #new-dialog { position: fixed; margin: 0; max-height: none; max-width: none; }
+#sheet { inset: 0 0 0 auto; width: min(640px, 100%); height: 100%; border-left: 1px solid var(--line); }
+#new-dialog { inset: 0; margin: auto; width: min(560px, calc(100% - 32px)); height: fit-content; max-height: calc(100% - 32px); border: 1px solid var(--line); border-radius: 16px; overflow-y: auto; }
+.sheet-inner {
+  height: 100%; overflow-y: auto; display: grid; align-content: start; gap: 18px;
+  padding: max(18px, env(safe-area-inset-top, 0px)) max(20px, env(safe-area-inset-right, 0px)) max(28px, env(safe-area-inset-bottom, 0px)) max(20px, env(safe-area-inset-left, 0px));
+}
+#new-dialog .sheet-inner { height: auto; padding: 20px; }
+.sheet-head { display: flex; align-items: center; gap: 10px; min-height: 36px; }
+.sheet-head .mono { font-size: 13px; color: var(--muted); }
+.icon-btn { margin-left: auto; width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--line); background: transparent; cursor: pointer; font-size: 20px; line-height: 1; display: grid; place-items: center; }
+.icon-btn:hover { border-color: var(--muted); }
+#sheet h2 { font-size: 23px; }
+.sheet-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+select, input, textarea { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font-size: 14px; color: var(--text); min-width: 0; }
+select { min-height: 36px; }
+textarea { width: 100%; resize: vertical; line-height: 1.5; }
+input { width: 100%; }
+.facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 16px; margin: 0; font-size: 14px; }
+.facts dt { color: var(--muted); }
+.facts dd { margin: 0; overflow-wrap: anywhere; }
+.prose { font-size: 15px; line-height: 1.6; display: grid; gap: 10px; max-width: 70ch; overflow-wrap: anywhere; }
+.prose ul, .prose ol { margin: 0; padding-left: 22px; display: grid; gap: 4px; }
+.prose code { font-family: var(--font-mono); font-size: .9em; background: var(--raised); padding: 1px 5px; border-radius: 5px; }
+.prose a { color: var(--accent); }
+.prose h4 { font-size: 14px; font-weight: 600; }
+.decision { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: grid; gap: 4px; font-size: 14px; }
+.decision b { font-weight: 600; }
+.sub-h { font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+.comments, .hist { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+.comment { display: grid; gap: 4px; }
+.comment-head { display: flex; gap: 8px; align-items: baseline; font-size: 13px; }
+.comment-head b { font-weight: 600; }
+.comment-head time { color: var(--muted); font-size: 12px; }
+.composer { display: grid; gap: 8px; margin-top: 14px; }
+.row-end { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.hist li { font-size: 13px; color: var(--muted); }
+.form { display: grid; gap: 14px; }
+.form label { font-size: 13px; font-weight: 500; }
+.form .pair { display: grid; gap: 6px; }
+.form .three { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 560px) { .form .three { grid-template-columns: minmax(0, 1fr); } }
+.hint { font-size: 13px; color: var(--muted); max-width: 60ch; }
+
+.banner { border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; font-size: 14px; background: var(--surface); }
+#toast {
+  position: fixed; inset: auto auto max(16px, calc(env(safe-area-inset-bottom, 0px) + 12px)) 50%; transform: translateX(-50%);
+  margin: 0; border: 0; background: var(--text); color: var(--bg); padding: 10px 18px; border-radius: 999px; font-size: 14px;
+  box-shadow: var(--shadow); max-width: calc(100% - 32px); width: max-content; z-index: 20;
+}
+.foot { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 16px; display: flex; flex-wrap: wrap; gap: 6px 18px; justify-content: space-between; }
+.readonly .write { display: none !important; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="shell">
+  <header class="top">
+    <div>
+      <p class="eyebrow">Team board</p>
+      <h1 id="org-name">__ORG__</h1>
+      <p class="mission" id="mission">Loading the board.</p>
+    </div>
+    <div class="tools">
+      <div class="seg" role="group" aria-label="Colors">
+        <button type="button" data-pal="google" aria-pressed="true">Google</button>
+        <button type="button" data-pal="oura" aria-pressed="false">Oura</button>
+      </div>
+      <button type="button" class="btn primary write" id="new-card">New card</button>
+    </div>
+    <div class="counts" id="counts" aria-label="Cards by status"></div>
+  </header>
+
+  <p class="banner" id="banner" role="status" hidden></p>
+
+  <section class="waiting" aria-labelledby="waiting-h">
+    <div class="sec-head"><h2 id="waiting-h">Waiting on you</h2><span class="n" id="waiting-n"></span></div>
+    <ul class="wait-list" id="waiting-list"></ul>
+    <p class="empty" id="waiting-empty" hidden>Nothing waits on you right now.</p>
+  </section>
+
+  <div class="panel">
+    <nav class="tabs" role="tablist" aria-label="Board views">
+      <button type="button" role="tab" id="tab-work" data-view="work" aria-controls="view-work" aria-selected="true">Work<span class="n" id="n-work"></span></button>
+      <button type="button" role="tab" id="tab-goals" data-view="goals" aria-controls="view-goals" aria-selected="false">Goals<span class="n" id="n-goals"></span></button>
+      <button type="button" role="tab" id="tab-team" data-view="team" aria-controls="view-team" aria-selected="false">Team<span class="n" id="n-team"></span></button>
+      <button type="button" role="tab" id="tab-log" data-view="log" aria-controls="view-log" aria-selected="false">Log</button>
+    </nav>
+    <section class="panel" id="view-work" role="tabpanel" aria-labelledby="tab-work">
+      <div class="columns-wrap" id="columns"><p class="empty">Loading cards.</p></div>
+      <div class="work-foot" id="work-foot"></div>
+    </section>
+    <section class="panel" id="view-goals" role="tabpanel" aria-labelledby="tab-goals" hidden><div class="panel" id="goals"></div></section>
+    <section class="panel" id="view-team" role="tabpanel" aria-labelledby="tab-team" hidden><div id="team"></div></section>
+    <section class="panel" id="view-log" role="tabpanel" aria-labelledby="tab-log" hidden><div id="log"></div></section>
+  </div>
+
+  <footer class="foot">
+    <span>Nothing leaves the team until you say so.</span>
+    <span id="sync">Connecting</span>
+  </footer>
+</div>
+
+<dialog id="sheet" aria-labelledby="sheet-title">
+  <div class="sheet-inner">
+    <div class="sheet-head">
+      <span class="mono" id="sheet-id"></span>
+      <span id="sheet-status"></span>
+      <button type="button" class="icon-btn" id="sheet-close" aria-label="Close">&times;</button>
+    </div>
+    <h2 id="sheet-title"></h2>
+    <div class="sheet-actions write" id="sheet-actions"></div>
+    <dl class="facts" id="sheet-facts"></dl>
+    <div class="prose" id="sheet-body"></div>
+    <div id="sheet-decision"></div>
+    <section aria-labelledby="comments-h">
+      <h3 class="sub-h" id="comments-h">Comments</h3>
+      <ol class="comments" id="sheet-comments"></ol>
+      <form class="composer write" id="composer">
+        <label class="sub-h" for="comment-text">Your comment</label>
+        <textarea id="comment-text" rows="3" placeholder="Write to the team. They read it on their next turn."></textarea>
+        <div class="row-end" id="composer-row">
+          <span id="composer-extra"></span>
+          <button type="submit" class="btn primary small">Add comment</button>
+        </div>
+      </form>
+    </section>
+    <section aria-labelledby="history-h">
+      <h3 class="sub-h" id="history-h">History</h3>
+      <ol class="hist" id="sheet-history"></ol>
+    </section>
+  </div>
+</dialog>
+
+<dialog id="new-dialog" aria-labelledby="new-title">
+  <form class="sheet-inner form" id="new-form">
+    <div class="sheet-head">
+      <h2 id="new-title">New card</h2>
+      <button type="button" class="icon-btn" data-close aria-label="Close">&times;</button>
+    </div>
+    <div class="pair"><label for="nc-title">What needs doing</label><input id="nc-title" maxlength="200" required autocomplete="off"></div>
+    <div class="pair"><label for="nc-body">Details</label><textarea id="nc-body" rows="5"></textarea></div>
+    <div class="three">
+      <div class="pair"><label for="nc-owner">Owner</label><select id="nc-owner"></select></div>
+      <div class="pair"><label for="nc-goal">Goal</label><select id="nc-goal"></select></div>
+      <div class="pair"><label for="nc-priority">Priority</label>
+        <select id="nc-priority"><option value="urgent">Urgent</option><option value="high">High</option><option value="medium" selected>Medium</option><option value="low">Low</option></select>
+      </div>
+    </div>
+    <p class="hint">The owner picks it up on their next turn. To start it now, tell the Chief of Staff in its chat.</p>
+    <div class="row-end"><button type="button" class="btn" data-close>Cancel</button><button type="submit" class="btn primary">Add card</button></div>
+  </form>
+</dialog>
+
+<div id="toast" role="status" aria-live="polite" popover="manual" hidden></div>
+
+<script>
+(() => {
+  const BENNY = 'benny';
+  const STATUS = { backlog: 'Backlog', todo: 'To do', in_progress: 'In progress', in_review: 'In review', blocked: 'Blocked', done: 'Done', cancelled: 'Cancelled' };
+  const COLUMNS = ['backlog', 'todo', 'in_progress', 'in_review', 'blocked', 'done'];
+  const OPEN = new Set(['backlog', 'todo', 'in_progress', 'in_review', 'blocked']);
+  const PRIORITY = { urgent: 0, high: 1, medium: 2, low: 3 };
+  const KIND = { task: 'Task', approval: 'Approval', step: 'Your step' };
+  const VIEWS = ['work', 'goals', 'team', 'log'];
+  const DONE_SHOWN = 8;
+  const ORG_FALLBACK = document.title.replace(/\s+Board$/, '') || 'The team';
+
+  const state = {
+    db: null, owner: false, canWrite: true, live: false, org: null,
+    cards: new Map(), team: new Map(), goals: new Map(), activity: [], comments: [],
+    open: null, view: 'work', showAllDone: false, showCancelled: false,
+  };
+  let unsubComments = null;
+
+  const $ = (s) => document.querySelector(s);
+  function el(tag, attrs = {}, ...kids) {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (v == null || v === false) continue;
+      if (k === 'class') n.className = v;
+      else if (k === 'text') n.textContent = v;
+      else if (k.startsWith('on')) n.addEventListener(k.slice(2), v);
+      else n.setAttribute(k, v === true ? '' : v);
+    }
+    for (const kid of kids.flat(2)) if (kid != null && kid !== false && kid !== '') n.append(kid instanceof Node ? kid : String(kid));
+    return n;
+  }
+
+  // Time, in the viewer's own zone.
+  const now = () => new Date().toISOString();
+  const rid = (p) => `${p}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  function ago(iso) {
+    const t = Date.parse(iso);
+    if (!t) return '';
+    const s = Math.max(0, Math.round((Date.now() - t) / 1000));
+    if (s < 45) return 'just now';
+    const m = Math.round(s / 60);
+    if (m < 60) return `${m} ${m === 1 ? 'minute' : 'minutes'} ago`;
+    const h = Math.round(m / 60);
+    if (h < 24) return `${h} ${h === 1 ? 'hour' : 'hours'} ago`;
+    const d = Math.round(h / 24);
+    if (d < 7) return `${d} ${d === 1 ? 'day' : 'days'} ago`;
+    return new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: d > 300 ? 'numeric' : undefined });
+  }
+  const full = (iso) => { const t = Date.parse(iso); return t ? new Date(t).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : ''; };
+  const clock = (iso) => { const t = Date.parse(iso); return t ? new Date(t).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : ''; };
+  function dayLabel(iso) {
+    const t = new Date(Date.parse(iso) || 0);
+    const key = (d) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    const today = new Date();
+    const yesterday = new Date(Date.now() - 864e5);
+    if (key(t) === key(today)) return 'Today';
+    if (key(t) === key(yesterday)) return 'Yesterday';
+    return t.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+  }
+
+  // Who and what.
+  const prefix = () => String(state.org?.prefix || 'GAP').replace(/[^A-Za-z0-9]/g, '') || 'GAP';
+  const list = () => [...state.cards.values()].filter((c) => c && c.title);
+  const members = () => [...state.team.values()].filter((t) => t && t.name);
+  const chief = () => state.org?.chief || members().find((t) => (t.reportsTo || BENNY) === BENNY)?.id || null;
+  function who(id) {
+    if (!id) return 'Nobody';
+    if (id === BENNY) return state.owner ? 'You' : (state.org?.ownerShort || 'Benny');
+    if (id === 'setup') return 'Setup';
+    return state.team.get(id)?.name || id;
+  }
+  const goalName = (id) => (id && state.goals.get(id)?.title) || '';
+  const cap = (s) => String(s || '').replace(/^./, (c) => c.toUpperCase());
+  const byPriority = (a, b) => (PRIORITY[a.priority] ?? 2) - (PRIORITY[b.priority] ?? 2) || (a.number ?? 0) - (b.number ?? 0);
+  const waitsOnYou = (c) => OPEN.has(c.status) && (c.assignee === BENNY || (c.status === 'in_review' && c.reviewer === BENNY));
+  const isReview = (c) => c.status === 'in_review' && c.reviewer === BENNY && c.assignee !== BENNY;
+  const kindRank = (c) => (isReview(c) ? 2 : { approval: 0, step: 1 }[c.kind] ?? 3);
+  const prio = (c) => (c.priority === 'urgent' ? el('span', { class: 'chip prio-urgent', text: 'Urgent' })
+    : c.priority === 'high' ? el('span', { class: 'chip prio-high', text: 'High' }) : null);
+  const ref = (id) => el('button', { class: 'ref', type: 'button', 'data-card': id, text: id });
+  const joinRefs = (ids) => ids.flatMap((id, i) => (i ? [', ', ref(id)] : [ref(id)]));
+
+  // Card text from the team: plain text with light marks (lists, `code`, **bold**, links, card numbers). Never HTML.
+  function inline(s) {
+    const frag = document.createDocumentFragment();
+    const re = new RegExp(`(\`[^\`\\n]+\`)|(\\*\\*[^*\\n]+\\*\\*)|(https?:\\/\\/[^\\s<>"']+[^\\s<>"'.,;:!?)])|(\\b${prefix()}-\\d+\\b)`, 'g');
+    let last = 0;
+    let m;
+    while ((m = re.exec(s))) {
+      if (m.index > last) frag.append(s.slice(last, m.index));
+      if (m[1]) frag.append(el('code', { text: m[1].slice(1, -1) }));
+      else if (m[2]) frag.append(el('strong', { text: m[2].slice(2, -2) }));
+      else if (m[3]) frag.append(el('a', { href: m[3], target: '_blank', rel: 'noopener noreferrer', text: m[3] }));
+      else if (m[4]) frag.append(ref(m[4]));
+      last = re.lastIndex;
+    }
+    if (last < s.length) frag.append(s.slice(last));
+    return frag;
+  }
+  function richText(text) {
+    const frag = document.createDocumentFragment();
+    const bullet = /^\s*([-*]|\d+[.)])\s+/;
+    for (const block of String(text ?? '').replace(/\r\n/g, '\n').split(/\n\s*\n/)) {
+      const lines = block.split('\n').filter((l) => l.trim());
+      if (!lines.length) continue;
+      if (lines.every((l) => bullet.test(l))) {
+        const listEl = el(/^\s*\d/.test(lines[0]) ? 'ol' : 'ul');
+        for (const l of lines) listEl.append(el('li', {}, inline(l.replace(bullet, ''))));
+        frag.append(listEl);
+      } else if (lines.length === 1 && /^#{1,4}\s/.test(lines[0])) {
+        frag.append(el('h4', {}, inline(lines[0].replace(/^#{1,4}\s+/, ''))));
+      } else {
+        const p = el('p');
+        lines.forEach((l, i) => { if (i) p.append(el('br')); p.append(inline(l)); });
+        frag.append(p);
+      }
+    }
+    return frag;
+  }
+
+  // Header and counts.
+  function renderHeader() {
+    $('#org-name').textContent = state.org?.name || ORG_FALLBACK;
+    const mission = $('#mission');
+    mission.textContent = state.org?.mission
+      || (state.live ? 'No mission written yet. The Chief of Staff proposes one with its first plan.' : 'Loading the board.');
+    const counts = {};
+    for (const c of list()) counts[c.status] = (counts[c.status] || 0) + 1;
+    $('#counts').replaceChildren(...COLUMNS.map((s) => el('span', { class: 'count-item', 'data-st': s },
+      el('span', { class: 'dot' }), STATUS[s], el('b', { text: String(counts[s] || 0) }))));
+    $('#n-work').textContent = String(list().filter((c) => OPEN.has(c.status)).length || '');
+    $('#n-goals').textContent = String(state.goals.size || '');
+    $('#n-team').textContent = String(members().length || '');
+    $('#sync').textContent = state.db ? (state.live ? 'Live: changes show as they happen' : 'Connecting') : 'Not connected';
+  }
+
+  // Waiting on you.
+  function renderWaiting() {
+    const items = list().filter(waitsOnYou).sort((a, b) => kindRank(a) - kindRank(b) || byPriority(a, b));
+    $('#waiting-n').textContent = items.length ? String(items.length) : '';
+    $('#waiting-empty').hidden = items.length > 0 || !state.live;
+    $('#waiting-list').replaceChildren(...items.map(waitItem));
+  }
+  function waitItem(c) {
+    const review = isReview(c);
+    const from = c.createdBy && c.createdBy !== BENNY ? `from ${who(c.createdBy)}` : '';
+    return el('li', { class: 'wait', 'data-st': c.status },
+      el('div', { class: 'wait-main' },
+        el('div', { class: 'wait-meta' },
+          el('span', { class: 'mono', text: c.id }),
+          el('span', { class: 'pill', text: review ? 'Review' : (KIND[c.kind] || 'Task') }),
+          from ? el('span', { text: from }) : null,
+          c.updatedAt ? el('span', { title: full(c.updatedAt), text: ago(c.updatedAt) }) : null,
+          prio(c)),
+        el('button', { class: 'wait-title', type: 'button', 'data-card': c.id, text: c.title })),
+      el('div', { class: 'wait-actions write' }, decisionButtons(c, 'small')));
+  }
+  function decisionButtons(c, size = '') {
+    if (!state.canWrite || !waitsOnYou(c)) return [];
+    if (isReview(c)) {
+      return [
+        el('button', { class: `btn primary ${size}`, type: 'button', onclick: () => acceptReview(c), text: 'Accept' }),
+        el('button', { class: `btn ${size}`, type: 'button', 'data-card': c.id, 'data-focus': 'composer', text: 'Send back' }),
+      ];
+    }
+    if (c.kind === 'approval') {
+      return [
+        armed('Approve', 'Click again to approve', () => approve(c), false, size),
+        armed('Decline', 'Click again to decline', () => decline(c), true, size),
+        el('button', { class: `btn ${size}`, type: 'button', 'data-card': c.id, 'data-focus': 'composer', text: 'Ask for changes' }),
+      ];
+    }
+    return [el('button', { class: `btn primary ${size}`, type: 'button', onclick: () => markDone(c), text: 'Mark done' })];
+  }
+  // A decision takes two clicks: the first arms the button for four seconds.
+  function armed(label, confirmLabel, action, danger, size) {
+    const b = el('button', { class: `btn ${danger ? 'danger' : 'primary'} ${size}`, type: 'button', text: label });
+    let timer = null;
+    b.addEventListener('click', () => {
+      if (!b.classList.contains('armed')) {
+        b.classList.add('armed');
+        b.textContent = confirmLabel;
+        timer = setTimeout(() => { b.classList.remove('armed'); b.textContent = label; }, 4000);
+        return;
+      }
+      clearTimeout(timer);
+      b.disabled = true;
+      action();
+    });
+    return b;
+  }
+
+  // Work: one column per status.
+  function tile(c) {
+    const meta = [el('span', { class: 'chip', text: who(c.assignee) })];
+    if (c.kind && c.kind !== 'task') meta.push(el('span', { class: 'chip', text: KIND[c.kind] || c.kind }));
+    if (c.status === 'in_progress' && c.checkout?.at) meta.push(el('span', { class: 'chip', text: `started ${ago(c.checkout.at)}` }));
+    if (Array.isArray(c.blockedBy) && c.blockedBy.length) meta.push(el('span', { class: 'chip', text: `waits on ${c.blockedBy.join(', ')}` }));
+    meta.push(prio(c));
+    const goal = goalName(c.goal);
+    return el('li', {}, el('button', { class: 'tile', type: 'button', 'data-card': c.id },
+      el('span', { class: 'tile-id' }, c.id, goal ? el('span', { class: 'tile-goal', text: `· ${goal}` }) : null),
+      el('span', { class: 'tile-title', text: c.title }),
+      el('span', { class: 'tile-meta' }, meta)));
+  }
+  function renderWork() {
+    const cards = list();
+    const box = $('#columns');
+    const foot = $('#work-foot');
+    if (!cards.length) {
+      box.replaceChildren(el('p', { class: 'empty', text: state.live ? 'No cards yet. The Chief of Staff makes the first one when the team starts.' : 'Loading cards.' }));
+      foot.replaceChildren();
+      return;
+    }
+    const cols = COLUMNS.map((s) => {
+      let items = cards.filter((c) => c.status === s);
+      items.sort(s === 'done' ? (a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)) : byPriority);
+      const total = items.length;
+      if (s === 'done' && !state.showAllDone) items = items.slice(0, DONE_SHOWN);
+      return el('section', { class: 'col', 'data-st': s, 'aria-label': STATUS[s] },
+        el('div', { class: 'col-head' }, el('span', { class: 'dot' }), el('h3', { text: STATUS[s] }), el('span', { class: 'n', text: String(total) })),
+        items.length ? el('ul', { class: 'tiles' }, items.map(tile)) : el('p', { class: 'col-empty', text: 'None' }),
+        s === 'done' && total > DONE_SHOWN ? el('button', {
+          class: 'link col-more', type: 'button', text: state.showAllDone ? 'Show fewer' : `Show all ${total}`,
+          onclick: () => { state.showAllDone = !state.showAllDone; renderWork(); },
+        }) : null);
+    });
+    box.replaceChildren(el('div', { class: 'columns' }, cols));
+    const cancelled = cards.filter((c) => c.status === 'cancelled').sort(byPriority);
+    foot.replaceChildren(
+      cancelled.length ? el('button', {
+        class: 'link', type: 'button', text: state.showCancelled ? 'Hide cancelled' : `Show cancelled (${cancelled.length})`,
+        onclick: () => { state.showCancelled = !state.showCancelled; renderWork(); },
+      }) : null,
+      state.showCancelled && cancelled.length ? el('ul', { class: 'cancelled-list' }, cancelled.map(tile)) : null);
+  }
+
+  // Goals: the mission, each goal, and how many of its cards are done.
+  function renderGoals() {
+    const goals = [...state.goals.values()].filter((g) => g.title)
+      .sort((a, b) => (a.order ?? 99) - (b.order ?? 99) || String(a.createdAt).localeCompare(String(b.createdAt)));
+    const cards = list().filter((c) => c.status !== 'cancelled');
+    const mission = el('div', { class: 'mission-card' },
+      el('p', { class: 'eyebrow', text: 'Mission' }),
+      el('p', { class: 'text', text: state.org?.mission || 'Not written yet.' }),
+      state.org?.missionSource ? el('p', { class: 'muted small-text', text: `Source: ${state.org.missionSource}` }) : null);
+    const rows = goals.map((g) => {
+      const mine = cards.filter((c) => c.goal === g.id);
+      const done = mine.filter((c) => c.status === 'done').length;
+      const pct = mine.length ? Math.round((done / mine.length) * 100) : 0;
+      const fill = el('span');
+      fill.style.width = `${pct}%`;
+      return el('li', { class: 'goal' },
+        el('div', {},
+          el('h3', {}, g.title, g.status && g.status !== 'active' ? el('span', { class: 'pill', text: g.status === 'met' ? 'Met' : 'Dropped' }) : null),
+          g.why ? el('p', { text: g.why }) : null),
+        el('div', { class: 'progress' },
+          el('span', { text: mine.length ? `${done} of ${mine.length} cards done` : 'No cards yet' }),
+          el('div', { class: 'bar', role: 'img', 'aria-label': `${pct} percent done` }, fill)));
+    });
+    const loose = cards.filter((c) => !c.goal || !state.goals.has(c.goal)).length;
+    $('#goals').replaceChildren(mission,
+      rows.length ? el('ul', { class: 'goal-list' }, rows)
+        : el('p', { class: 'empty', text: 'No goals yet. The Chief of Staff proposes them with its first plan, for your approval.' }),
+      loose ? el('p', { class: 'muted small-text', text: `${loose} ${loose === 1 ? 'card is' : 'cards are'} not tied to a goal.` }) : null);
+  }
+
+  // Team: the org chart, Benny at the top.
+  function member(t) {
+    const open = t.owner ? list().filter(waitsOnYou).length : list().filter((c) => c.assignee === t.id && OPEN.has(c.status)).length;
+    return el('div', { class: `member${t.owner ? ' owner' : ''}` },
+      el('div', { class: 'member-head' },
+        el('span', { class: 'member-name', text: t.name }),
+        t.title ? el('span', { class: 'member-title', text: t.title }) : null,
+        t.status && t.status !== 'active' ? el('span', { class: 'pill', text: cap(t.status) }) : null),
+      t.job ? el('p', { class: 'member-job', text: t.job }) : null,
+      el('div', { class: 'member-meta' },
+        el('span', { text: t.owner ? `${open} waiting on you` : `${open} open ${open === 1 ? 'card' : 'cards'}` }),
+        t.owner ? null : el('span', { title: full(t.lastTurnAt), text: t.lastTurnAt ? `Last turn ${ago(t.lastTurnAt)}` : 'No turns yet' })),
+      t.lastTurnSummary ? el('p', { class: 'muted member-summary', text: t.lastTurnSummary }) : null);
+  }
+  function branch(boss, seen) {
+    const kids = members().filter((t) => (t.reportsTo || BENNY) === boss && !seen.has(t.id) && t.status !== 'retired')
+      .sort((a, b) => String(a.hiredAt).localeCompare(String(b.hiredAt)));
+    if (!kids.length) return null;
+    kids.forEach((t) => seen.add(t.id));
+    return el('ul', {}, kids.map((t) => el('li', {}, member(t), branch(t.id, seen))));
+  }
+  function renderTeam() {
+    const owner = { owner: true, name: state.org?.owner || 'Benny', title: 'Owner', job: 'Approves hires and plans. Anything that leaves the team waits for his say-so.' };
+    const retired = members().filter((t) => t.status === 'retired');
+    $('#team').replaceChildren(
+      el('ul', { class: 'tree' }, el('li', {}, member(owner), branch(BENNY, new Set()))),
+      retired.length ? el('p', { class: 'muted small-text', text: `Retired: ${retired.map((t) => t.name).join(', ')}` }) : null);
+  }
+
+  // Log: every change, newest first.
+  function logRow(a) {
+    const card = a.card ? state.cards.get(a.card) : null;
+    return el('li', { class: 'log-row' },
+      el('time', { datetime: a.at, title: full(a.at), text: clock(a.at) }),
+      el('span', { class: 'what' },
+        el('b', { text: who(a.actor) }), ' ', a.action || 'changed',
+        a.card ? [' ', ref(a.card)] : null, card?.title ? [' ', card.title] : null,
+        a.detail ? el('span', { class: 'detail', text: a.detail }) : null));
+  }
+  function renderLog() {
+    if (!state.activity.length) {
+      $('#log').replaceChildren(el('p', { class: 'empty', text: state.live ? 'Nothing logged yet.' : 'Loading the log.' }));
+      return;
+    }
+    const rows = [];
+    let day = '';
+    for (const a of state.activity) {
+      const d = dayLabel(a.at);
+      if (d !== day) { day = d; rows.push(el('li', { class: 'log-day', text: d })); }
+      rows.push(logRow(a));
+    }
+    $('#log').replaceChildren(el('ol', { class: 'log' }, rows));
+  }
+
+  // The card sheet.
+  function ownerOptions(current) {
+    const ids = [BENNY, ...members().filter((t) => t.status !== 'retired').map((t) => t.id)];
+    if (current && !ids.includes(current)) ids.push(current);
+    return ids.map((id) => el('option', { value: id, selected: id === current, text: who(id) }));
+  }
+  function renderSheet() {
+    if (!state.open) return;
+    const id = state.open;
+    const c = state.cards.get(id);
+    $('#sheet-id').textContent = id;
+    const parts = ['#sheet-status', '#sheet-actions', '#sheet-facts', '#sheet-body', '#sheet-decision', '#composer-extra', '#sheet-history'];
+    if (!c || !c.title) {
+      $('#sheet-title').textContent = state.live ? 'This card is not on the board.' : 'Loading the card.';
+      parts.forEach((p) => $(p).replaceChildren());
+      $('#sheet-comments').replaceChildren();
+      return;
+    }
+    $('#sheet-status').replaceChildren(el('span', { class: 'pill', 'data-st': c.status }, el('span', { class: 'dot' }), STATUS[c.status] || c.status));
+    $('#sheet-title').textContent = c.title;
+
+    const acts = [];
+    if (state.canWrite) {
+      const st = el('select', { id: 'sheet-st' }, Object.entries(STATUS).map(([v, l]) => el('option', { value: v, selected: v === c.status, text: l })));
+      st.addEventListener('change', () => moveCard(c, st.value));
+      const ow = el('select', { id: 'sheet-owner' }, ownerOptions(c.assignee));
+      ow.addEventListener('change', () => reassign(c, ow.value));
+      acts.push(el('label', { class: 'field' }, 'Status', st), el('label', { class: 'field' }, 'Owner', ow), decisionButtons(c));
+    }
+    $('#sheet-actions').replaceChildren(...acts.flat());
+
+    const subs = list().filter((x) => x.parent === c.id).sort((a, b) => a.number - b.number).map((x) => x.id);
+    const facts = [
+      ['Kind', KIND[c.kind] || 'Task'],
+      ['Owner', who(c.assignee)],
+      c.reviewer ? ['Reviewer', who(c.reviewer)] : null,
+      ['Goal', goalName(c.goal) || 'None'],
+      ['Priority', cap(c.priority || 'medium')],
+      c.parent ? ['Part of', [ref(c.parent)]] : null,
+      subs.length ? ['Sub-cards', joinRefs(subs)] : null,
+      Array.isArray(c.blockedBy) && c.blockedBy.length ? ['Waits on', joinRefs(c.blockedBy)] : null,
+      c.checkout?.by && c.status === 'in_progress' ? ['Working', `${who(c.checkout.by)}, started ${ago(c.checkout.at)}`] : null,
+      ['Made', `${who(c.createdBy)}, ${full(c.createdAt)}`],
+      c.updatedAt ? ['Changed', `${who(c.updatedBy)}, ${ago(c.updatedAt)}`] : null,
+    ].filter(Boolean);
+    $('#sheet-facts').replaceChildren(...facts.flatMap(([k, v]) => [el('dt', { text: k }), el('dd', {}, v)]));
+
+    $('#sheet-body').replaceChildren(c.body ? richText(c.body) : el('p', { class: 'muted', text: 'No details.' }));
+
+    const d = c.decision;
+    const verdicts = { approved: 'Approved', declined: 'Declined', changes: 'Changes asked' };
+    $('#sheet-decision').replaceChildren(d?.verdict ? el('div', { class: 'decision' },
+      el('span', {}, el('b', { text: verdicts[d.verdict] || cap(d.verdict) }), ` by ${who(d.by)}, ${full(d.at)}`),
+      d.note ? el('span', { class: 'muted', text: d.note }) : null) : '');
+
+    const extra = [];
+    if (state.canWrite && waitsOnYou(c) && (c.kind === 'approval' || isReview(c))) {
+      const label = isReview(c) ? 'Send back with this note' : 'Ask for changes with this note';
+      extra.push(el('button', { class: 'btn small', type: 'button', text: label, onclick: () => {
+        const note = $('#comment-text').value.trim();
+        if (!note) { toast('Write what should change first, then press the button again.', true); $('#comment-text').focus(); return; }
+        (isReview(c) ? sendBack : askChanges)(c, note);
+      } }));
+    }
+    $('#composer-extra').replaceChildren(...extra);
+
+    $('#sheet-comments').replaceChildren(...(state.comments.length ? state.comments.map((m) => el('li', { class: 'comment' },
+      el('div', { class: 'comment-head' }, el('b', { text: who(m.author) }), el('time', { datetime: m.at, title: full(m.at), text: ago(m.at) })),
+      el('div', { class: 'prose' }, richText(m.body)))) : [el('li', { class: 'muted small-text', text: 'No comments yet.' })]));
+
+    const hist = state.activity.filter((a) => a.card === c.id);
+    $('#sheet-history').replaceChildren(...(hist.length ? hist.map((a) => el('li', {},
+      `${who(a.actor)} ${a.action || 'changed'} it, ${ago(a.at)}`, a.detail ? `: ${a.detail}` : '')) : [el('li', { text: 'Nothing logged for this card yet.' })]));
+  }
+  function openCard(id, focus) {
+    const dialog = $('#sheet');
+    if (state.open !== id) {
+      unsubComments?.();
+      unsubComments = null;
+      state.comments = [];
+      state.open = id;
+      if (state.db) {
+        try {
+          unsubComments = state.db.collection(`cards/${id}/comments`).orderBy('at').limit(300).onSnapshot((qs) => {
+            state.comments = qs.docs.map((d) => ({ ...d.data(), id: d.id }));
+            renderSheet();
+          }, () => {});
+        } catch { /* not a card number */ }
+      }
+    }
+    if (!dialog.open) { try { dialog.showModal(); } catch { dialog.setAttribute('open', ''); } }
+    renderSheet();
+    if (focus === 'composer') setTimeout(() => $('#comment-text').focus(), 40);
+    else $('#sheet-close').focus();
+    try { history.replaceState(null, '', `#${id}`); } catch { /* the viewer keeps its own address */ }
+  }
+  function closeSheet() {
+    if (!state.open) return;
+    state.open = null;
+    unsubComments?.();
+    unsubComments = null;
+    state.comments = [];
+    $('#comment-text').value = '';
+    const dialog = $('#sheet');
+    if (dialog.open) dialog.close();
+    try { history.replaceState(null, '', `#${state.view}`); } catch { /* the viewer keeps its own address */ }
+  }
+
+  function renderAll() {
+    renderHeader();
+    renderWaiting();
+    renderWork();
+    renderGoals();
+    renderTeam();
+    renderLog();
+    renderSheet();
+  }
+
+  // Writes. Every change by Benny also gets a row in the log.
+  function toast(text, bad = false) {
+    const t = $('#toast');
+    t.textContent = text;
+    t.hidden = false;
+    try { t.hidePopover?.(); t.showPopover?.(); } catch { /* shown in place */ }
+    clearTimeout(toast.timer);
+    toast.timer = setTimeout(() => { t.hidden = true; try { t.hidePopover?.(); } catch { /* already hidden */ } }, bad ? 6500 : 3500);
+  }
+  function banner(text) {
+    const b = $('#banner');
+    b.hidden = !text;
+    b.textContent = text || '';
+  }
+  async function guarded(work, done) {
+    if (!state.db) { toast('This view cannot change the board.', true); return false; }
+    try {
+      await work();
+      if (done) toast(done);
+      return true;
+    } catch (e) {
+      toast(`Not saved: ${e?.message || 'the board did not answer'}. Try again.`, true);
+      renderAll();
+      return false;
+    }
+  }
+  const addLog = (card, action, detail = '') => state.db.collection('activity').doc(rid('a')).set({ at: now(), actor: BENNY, action, card: card || null, detail });
+  async function patchCard(c, patch, action, detail = '') {
+    await state.db.doc(`cards/${c.id}`).update({ ...patch, updatedAt: now(), updatedBy: BENNY });
+    await addLog(c.id, action, detail);
+  }
+  async function writeComment(c, body) {
+    const at = now();
+    await state.db.collection(`cards/${c.id}/comments`).doc(rid('c')).set({ author: BENNY, body, at });
+    await state.db.doc(`cards/${c.id}`).update({ lastCommentAt: at, lastCommentBy: BENNY });
+  }
+  const nextTurn = (c) => `${who(c.createdBy && c.createdBy !== BENNY ? c.createdBy : chief())} sees it on its next turn.`;
+  const approve = (c) => guarded(() => patchCard(c, { status: 'done', checkout: null, decision: { verdict: 'approved', note: '', by: BENNY, at: now() } }, 'approved'), `Approved ${c.id}. ${nextTurn(c)}`);
+  const decline = (c) => guarded(() => patchCard(c, { status: 'cancelled', checkout: null, decision: { verdict: 'declined', note: '', by: BENNY, at: now() } }, 'declined'), `Declined ${c.id}. ${nextTurn(c)}`);
+  async function askChanges(c, note) {
+    const back = c.createdBy && c.createdBy !== BENNY ? c.createdBy : (chief() || BENNY);
+    const ok = await guarded(async () => {
+      await writeComment(c, note);
+      await patchCard(c, { status: 'todo', assignee: back, decision: { verdict: 'changes', note, by: BENNY, at: now() } }, 'asked for changes on', note);
+    }, `Sent ${c.id} back to ${who(back)} with your note.`);
+    if (ok) $('#comment-text').value = '';
+  }
+  const acceptReview = (c) => guarded(() => patchCard(c, { status: 'done', checkout: null, reviewedBy: BENNY, reviewedAt: now() }, 'accepted'), `Accepted. ${c.id} is done.`);
+  async function sendBack(c, note) {
+    const ok = await guarded(async () => {
+      await writeComment(c, note);
+      await patchCard(c, { status: 'todo', checkout: null }, 'sent back', note);
+    }, `Sent ${c.id} back to ${who(c.assignee)} with your note.`);
+    if (ok) $('#comment-text').value = '';
+  }
+  const markDone = (c) => guarded(() => patchCard(c, { status: 'done', checkout: null, closedBy: BENNY, closedAt: now() }, 'marked done'), `Marked ${c.id} done.`);
+  function moveCard(c, status) {
+    if (status === c.status) return;
+    guarded(() => patchCard(c, { status, ...(status === 'in_progress' ? {} : { checkout: null }) }, 'moved', `To ${STATUS[status]}`), `Moved ${c.id} to ${STATUS[status]}.`);
+  }
+  function reassign(c, to) {
+    if (to === c.assignee) return;
+    guarded(() => patchCard(c, { assignee: to }, 'handed', `To ${who(to)}`), `${c.id} is now ${to === BENNY ? 'yours' : `${who(to)}'s`}.`);
+  }
+  async function createCard(fields) {
+    let n = Math.max(0, ...list().map((c) => Number(c.number) || 0)) + 1;
+    for (let tries = 0; tries < 10; tries += 1, n += 1) {
+      const id = `${prefix()}-${n}`;
+      const docRef = state.db.doc(`cards/${id}`);
+      const snap = await docRef.get();
+      if (snap.exists && snap.data()?.title) continue;
+      const at = now();
+      await docRef.set({
+        number: n, title: fields.title, body: fields.body, status: 'todo', kind: 'task', assignee: fields.assignee,
+        reviewer: null, goal: fields.goal || null, parent: null, blockedBy: [], priority: fields.priority,
+        createdBy: BENNY, createdAt: at, updatedAt: at, updatedBy: BENNY, checkout: null, decision: null,
+      });
+      await addLog(id, 'made', fields.assignee === BENNY ? '' : `For ${who(fields.assignee)}`);
+      return id;
+    }
+    throw new Error('no free card number');
+  }
+
+  // Views, the new-card form and the colors switch.
+  function setView(view) {
+    state.view = VIEWS.includes(view) ? view : 'work';
+    for (const v of VIEWS) {
+      $(`#tab-${v}`).setAttribute('aria-selected', String(v === state.view));
+      $(`#view-${v}`).hidden = v !== state.view;
+    }
+    if (!state.open) { try { history.replaceState(null, '', `#${state.view}`); } catch { /* the viewer keeps its own address */ } }
+  }
+  function openFromHash() {
+    const h = decodeURIComponent(location.hash.slice(1));
+    if (VIEWS.includes(h)) setView(h);
+    else if (/^[A-Za-z0-9]+-\d+$/.test(h)) openCard(h);
+  }
+  function openNewCard() {
+    const owner = $('#nc-owner');
+    const goal = $('#nc-goal');
+    owner.replaceChildren(...ownerOptions(chief() || BENNY));
+    goal.replaceChildren(el('option', { value: '', text: 'No goal' }),
+      ...[...state.goals.values()].filter((g) => g.title && g.status !== 'dropped').map((g) => el('option', { value: g.id, text: g.title })));
+    const dialog = $('#new-dialog');
+    if (!dialog.open) { try { dialog.showModal(); } catch { dialog.setAttribute('open', ''); } }
+    $('#nc-title').focus();
+  }
+  function readPalette() { try { return localStorage.getItem('board-palette') === 'oura' ? 'oura' : 'google'; } catch { return 'google'; } }
+  function applyPalette(p) {
+    if (p === 'oura') document.documentElement.setAttribute('data-palette', 'oura');
+    else document.documentElement.removeAttribute('data-palette');
+    document.querySelectorAll('[data-pal]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.pal === p)));
+  }
+
+  function wire() {
+    document.addEventListener('click', (e) => {
+      const target = e.target.closest('[data-card]');
+      if (target) { e.preventDefault(); openCard(target.dataset.card, target.dataset.focus); }
+    });
+    document.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => setView(b.dataset.view)));
+    document.querySelectorAll('[data-pal]').forEach((b) => b.addEventListener('click', () => {
+      applyPalette(b.dataset.pal);
+      try { localStorage.setItem('board-palette', b.dataset.pal); } catch { /* kept for this visit only */ }
+    }));
+    const sheet = $('#sheet');
+    $('#sheet-close').addEventListener('click', closeSheet);
+    sheet.addEventListener('close', closeSheet);
+    sheet.addEventListener('click', (e) => { if (e.target === sheet) closeSheet(); });
+    $('#composer').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const c = state.open && state.cards.get(state.open);
+      const body = $('#comment-text').value.trim();
+      if (!c || !body) return;
+      const ok = await guarded(async () => { await writeComment(c, body); await addLog(c.id, 'commented on', body.slice(0, 160)); }, 'Comment added.');
+      if (ok) $('#comment-text').value = '';
+    });
+    $('#new-card').addEventListener('click', openNewCard);
+    const nd = $('#new-dialog');
+    nd.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => nd.close()));
+    nd.addEventListener('click', (e) => { if (e.target === nd) nd.close(); });
+    $('#new-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fields = {
+        title: $('#nc-title').value.trim(), body: $('#nc-body').value.trim(),
+        assignee: $('#nc-owner').value || BENNY, goal: $('#nc-goal').value, priority: $('#nc-priority').value || 'medium',
+      };
+      if (!fields.title) { $('#nc-title').focus(); return; }
+      let id = null;
+      const ok = await guarded(async () => { id = await createCard(fields); });
+      if (!ok) return;
+      nd.close();
+      $('#new-form').reset();
+      toast(`Added ${id}. ${fields.assignee === BENNY ? 'It waits on you.' : `${who(fields.assignee)} picks it up on its next turn.`}`);
+    });
+  }
+
+  function subscribe() {
+    const db = state.db;
+    const timer = setTimeout(() => { if (!state.live) banner('The board is not answering yet. It keeps trying, and this note goes away once it loads.'); }, 10000);
+    const goLive = () => {
+      if (state.live) return;
+      state.live = true;
+      clearTimeout(timer);
+      banner(null);
+      openFromHash();
+    };
+    const failed = (what) => (e) => {
+      clearTimeout(timer);
+      banner(e?.code === 'revoked' ? 'Access to this board changed. Reload the page to see what you can open now.'
+        : `The ${what} stopped updating (${e?.code || 'error'}). Reload the page to try again.`);
+    };
+    const asMap = (qs) => new Map(qs.docs.map((d) => [d.id, { ...d.data(), id: d.id }]));
+    db.doc('meta/org').onSnapshot((s) => { state.org = s.exists ? s.data() : null; renderAll(); }, failed('board settings'));
+    db.collection('cards').onSnapshot((qs) => { state.cards = asMap(qs); if (!qs.metadata?.fromCache) goLive(); renderAll(); }, failed('cards'));
+    db.collection('team').onSnapshot((qs) => { state.team = asMap(qs); renderAll(); }, failed('team'));
+    db.collection('goals').onSnapshot((qs) => { state.goals = asMap(qs); renderAll(); }, failed('goals'));
+    db.collection('activity').orderBy('at', 'desc').limit(150).onSnapshot((qs) => {
+      state.activity = qs.docs.map((d) => ({ ...d.data(), id: d.id }));
+      renderAll();
+    }, failed('log'));
+  }
+
+  async function boot() {
+    applyPalette(readPalette());
+    wire();
+    const first = decodeURIComponent(location.hash.slice(1));
+    if (VIEWS.includes(first)) setView(first);
+    renderAll();
+    const use = window.claude?.use;
+    if (typeof use !== 'function') {
+      state.canWrite = false;
+      document.body.classList.add('readonly');
+      banner('Open this page on claude.ai to load the board.');
+      renderAll();
+      return;
+    }
+    const [db, user] = await Promise.all([
+      Promise.resolve(use('db')).catch(() => null),
+      Promise.resolve(use('user')).catch(() => null),
+    ]);
+    state.db = db;
+    if (user) {
+      state.owner = Boolean(await user.isOwner().catch(() => false));
+      const write = await user.can('data.write').catch(() => null);
+      if (write === false) state.canWrite = false;
+    }
+    if (!db) {
+      state.canWrite = false;
+      banner('This view cannot open the board. Open it on claude.ai, signed in.');
+    }
+    document.body.classList.toggle('readonly', !state.canWrite);
+    renderAll();
+    if (db) subscribe();
+  }
+  boot();
+})();
+</script>

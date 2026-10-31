@@ -15,6 +15,9 @@ Two parts, both installed into Paperclip from this folder:
 - **The Claude Desktop plugin** (`plugin/`): gives every new org its own folder, adds Settings > Org folder,
   puts an "Open in Claude Desktop" button on cards, and fixes Paperclip's own page (below).
 
+A team can also run with no Paperclip at all: the same way of working, kept on one claude.ai page
+(`native/`, first used for GA Pardon on 2026-10-31). See `native/README.md`.
+
 ## Every Desktop turn is a Paperclip run
 
 The org folder's `.claude/settings.json` runs three hooks (`org-folder.mjs` puts them there):
