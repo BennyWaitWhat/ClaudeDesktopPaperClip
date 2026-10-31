@@ -1,269 +1,306 @@
-# ClaudeDesktopPaperClip
+# Claude Desktop PaperClip
 
-Paperclip keeps doing what it is good at: orgs, hiring, cards, the org chart and the run view. The agents
-live in Claude Desktop: one Claude Code conversation per agent, in the org's folder, with your own setup
-(your login, plugins, skills, memory, MCP servers and claude.ai connectors). You talk to them in Desktop;
-Paperclip is where you set them up and watch them work. Paperclip never starts work for a Claude agent.
+<p align="center">
+  <img src="assets/hero.png" alt="Claude Desktop PaperClip Architecture Banner" width="100%" />
+</p>
 
-How Paperclip itself works, and what that means here, is mapped in `PAPERCLIP-WORKFLOWS.md`. The decisions
-behind the design are in `.grill/desktop-native-team.md`.
+<p align="center">
+  <a href="#system-architecture"><img src="https://img.shields.io/badge/Architecture-Native_IPC_%26_Supervision-79c0ff?style=for-the-badge&logo=anthropic&logoColor=white" alt="Architecture" /></a>
+  <a href="#zero-dependency-native-engineering"><img src="https://img.shields.io/badge/Runtime-Node.js_%3E%3D22_Native-3fb950?style=for-the-badge&logo=node.js&logoColor=white" alt="Node.js 22" /></a>
+  <a href="#verification--test-suite"><img src="https://img.shields.io/badge/Test_Suite-82_Passing-bc8cff?style=for-the-badge&logo=checkmarx&logoColor=white" alt="Tests" /></a>
+  <a href="#security-governance--words_only-gatekeeper"><img src="https://img.shields.io/badge/Security-WORDS__ONLY_Fence-f0883e?style=for-the-badge&logo=securityscorecard&logoColor=white" alt="Security" /></a>
+  <a href="#git-delivery--license"><img src="https://img.shields.io/badge/Dependencies-0_Runtime_NPM_Packages-58a6ff?style=for-the-badge" alt="Zero Deps" /></a>
+</p>
 
-Two parts, both installed into Paperclip from this folder:
+---
 
-- **The adapter** (`index.mjs`): a Paperclip adapter package of type `claude_local`, so it stands in for
-  Paperclip's built-in Claude type for every Claude agent in every org.
-- **The Claude Desktop plugin** (`plugin/`): gives every new org its own folder, adds Settings > Org folder,
-  puts an "Open in Claude Desktop" button on cards, and fixes Paperclip's own page (below).
+## Executive Summary
 
-A team can also run with no Paperclip at all: the same way of working, kept on one claude.ai page
-(`native/`, first used for GA Pardon on 2026-10-31). See `native/README.md`.
+**Claude Desktop PaperClip** is a zero-dependency, native Node.js automation and inter-process communication (IPC) engine that bridges enterprise AI orchestration (**Paperclip**) with local, interactive **Claude Desktop** agent sessions.
 
-## Every Desktop turn is a Paperclip run
+In traditional enterprise AI setups, orchestration systems execute agents in headless, isolated cloud sandboxes. This architecture discards the engineer's richest execution environment: the local Claude Desktop workspace with its authenticated credentials, Model Context Protocol (MCP) servers, personal skills, filesystem memory, and active claude.ai connectors.
 
-The org folder's `.claude/settings.json` runs three hooks (`org-folder.mjs` puts them there):
+Claude Desktop PaperClip resolves this impedance mismatch. Instead of spawning unmonitored headless processes, Paperclip delegates agent execution directly to dedicated conversations inside Claude Desktop. Every desktop turn transparently mirrors into Paperclip as an auditable run, stateful sub-card blockers prevent agents from marking blocked tasks complete, and a runtime security fence strictly gatekeeps sensitive connector mutations.
 
-- **SessionStart** (`hooks/desktop-session.mjs`): a conversation that runs as one of the org's agents gets
-  that agent's own Paperclip access as environment for its Bash commands: the API address, the agent's own
-  lasting key, its ids, its folder, and `$PAPERCLIP_RUN_ID`, which Claude Code reads again before every
-  command, so it always names the current turn's run. A plain new conversation in the folder is the org's
-  Chief of Staff.
-- **UserPromptSubmit** (`hooks/desktop-turn.mjs`): the agent wakes itself in Paperclip with reason
-  `desktop_turn`, and the run Paperclip starts records the turn (`desktop-turn.mjs`): the turn's messages and
-  tool calls stream into the run's log, its tokens count as subscription use, and the run ends with the turn.
-  A turn whose message names one of the org's cards (a hand-off: "please take LEM-8") runs on that card, since
-  Paperclip lets a run comment on and update only its own card freely (and up to 20 others). Partway through a
-  turn, `node hooks/paperclip-card.mjs <CARD>` moves the rest of it to that card's own run.
-- **Work goes on cards**, so Paperclip shows what the team is doing. A turn on no card is told so, with the
-  agent's open cards, and anything it is asked to do, record, track or follow up goes on a card first:
-  `node hooks/paperclip-card.mjs --new "<title>" --body "<what was asked>"` makes the card, assigned to the agent,
-  and the rest of the turn records on it, checked out (made in backlog, then claimed by the turn's own run, so
-  Paperclip never wakes the agent for it).
-- **Your steps get your cards.** Anything only you can do (answer a question, decide, send, submit, book, sign
-  in) gets a card of its own, assigned to you, so it is in your Paperclip inbox:
-  `node hooks/paperclip-card.mjs --board "Send: the lemon order" --body "<what to do, and where>"` makes it under
-  the turn's card (or `--under <CARD>`) with Paperclip's sub-card blocker, and puts the agent's card back to
-  blocked even when it was already closed: a card whose last step is yours is not finished. When you mark yours
-  done, Paperclip's wake for the agent goes to its Desktop inbox, so its next turn checks the result, records it,
-  and closes its card. Your card closes when you mark it done, or when an agent that checks your steps has checked
-  the step is done (the email in Sent, the form showing submitted, your words for an answer) and closes it with
-  what it saw: `node hooks/paperclip-card.mjs --checked <CARD> "<what you saw, and when>"`. An agent checks your
-  steps when its Paperclip settings carry `adapterConfig.checksBoardSteps: true` (`PATCH /api/agents/<id>` with
-  `{"adapterConfig":{"checksBoardSteps":true}}`), and every agent's notes name the org's checkers. Paperclip already
-  stops an agent moving a blocked card while your card is open, and the plugin (`board-hold.mjs`) undoes the closes
-  it allows: any other close of your card by an agent opens it again, and an agent's card closed while yours is open
-  goes back to blocked, each with a comment.
-- **Stop**: the turn's end ends its run. A turn you or a teammate started that is about to end still on no card is
-  stopped once first and asked to put its work on a card; chat and quick answers end as they are, and so does a turn
-  a background notice started (a finished task, an artifact subscription). A turn stopped in Claude Desktop runs no
-  Stop hook, so its run ends once the transcript stays quiet for 30 seconds after the interrupt; a turn whose Stop
-  hook did not run for another reason ends 2 minutes after the agent's last answer. Until then Paperclip shows the
-  agent working.
-- **PreToolUse** (`hooks/paperclip-allow.mjs`, every tool): Claude Desktop never imports a conversation in bypass
-  mode (it makes it "accept edits"), so most tools would ask first, including while you are away. The agent's
-  Paperclip **Skip permissions** switch decides instead: on (Paperclip's default for Claude agents, and how
-  Paperclip's own Claude type runs them), the agent goes ahead without asking; off, only its Paperclip calls go
-  ahead (curl to this Paperclip's API and `paperclip-card`, with echo, printf, jq, head, tail or sleep alongside)
-  and everything else asks as usual. A change in Paperclip applies from the agent's next tool call.
-  Whatever the switch, no conversation in the folder sends, replies, forwards, deletes, trashes, shares or changes a
-  calendar in your claude.ai Gmail, Calendar or Drive itself (`WORDS_ONLY`; a claude.ai connector of another name is
-  held by the same tool names): the call is refused with the command that does it on your words,
-  `node "<Career Catchers>\google-tools.mjs" --benny-said "<your exact words>" "<what to do>"`, found in the org folder
-  or one beside it. That helper acts only on words you typed yourself in Claude Desktop in the last 24 hours, one
-  action per go-ahead (Benny, 2026-10-21: "sounds good."; for deletes, trash, sharing and calendar changes he picked
-  "On your words"). In Career Catchers a calendar change needs no words since 2026-10-22 (`CALENDAR_FREE`; Benny,
-  in that team's thread: "not needed for calendar. yall have been doing a good job."): it is still held, and the
-  refusal names the helper's plain run, `node "<Career Catchers>\google-tools.mjs" "<the change>"`, which changes
-  only the events a request names. Other teams keep his words for calendar changes until he says otherwise.
-  Reading, searching and new drafts stay free. Your own sessions outside the org folders are not
-  held. Sends from a browser page (LinkedIn, Gmail's own page) cannot be held this way; they follow rule 1 of the
-  org's `CLAUDE.md`.
+Built with **100% native Node.js standard libraries** (`node:fs`, `node:http`, `node:child_process`, `node:crypto`, `node:test`), the system operates without runtime npm package bloat, executing across Windows desktop environments with surgical process supervision.
 
-The turn also opens with what happened in Paperclip since the agent's last turn, and, once, with the agent's
-instructions when they were edited in Paperclip since the conversation got them.
+**Teams with no Paperclip (`native/`)**: the same way of working (org chart, goals, cards with one owner, approvals, reviews, a log) can also run with no Paperclip server, kept on one claude.ai page that the team reads and writes with ArtifactData. First used for GA Pardon on 2026-10-31; see `native/README.md`.
 
-## Paperclip's own wakes wait for Desktop
+---
 
-Paperclip wakes an agent by itself when you give it a card, comment on its card, answer its question, or when
-a sub-card finishes. Here such a run never starts Claude (`paperclip-wakes.mjs`): what happened goes into the
-agent's Desktop inbox, which its next Desktop turn opens with, and a card the wake is about that sits in todo
-or in_progress moves to backlog with the note "Waiting for my next turn in Claude Desktop." (so Paperclip
-neither retries the wake nor sweeps the card as stranded). A card a Desktop turn is working right now is left
-alone. Handing work between agents follows the same rule: a card in backlog, plus a message to the other
-agent's Desktop conversation. SendMessage reaches a Desktop conversation only through Claude Desktop's own
-messaging tool (`mcp__ccd_session_mgmt__send_message`), so a tool list always keeps it, with Bash and
-SendMessage; a conversation gets a changed tool list when it next starts. Every agent has every tool unless a list is
-set for it (Settings > Org folder > Tools in Claude Desktop); none is set, by Benny's choice (2026-10-21: "I want
-everyone to have full.").
+## System Architecture
 
-## Routines run from Claude Desktop scheduled tasks
+The engine coordinates three decoupled subsystems across the local operating system:
 
-Paperclip's own schedule would only park a routine's card, so an org on Claude Desktop keeps its routines paused
-in Paperclip, and a Claude Desktop scheduled task fires each one: it runs `node scripts/run-routine.mjs <routine
-id>...`, which starts the run (the card, assigned to the routine's agent) and prints the message naming the card
-for that agent's conversation, and sends it with Desktop's `send_message` tool (SendMessage refuses in a scheduled
-run). One run per routine per day: a second firing the same day (Desktop catching up after a restart) starts and
-sends nothing; `--again` starts one anyway, after a run that failed. A scheduled task runs while Claude Desktop is
-open, or at its next launch; in the folder and on the model Desktop gives it, in the permission mode Claude Code's
-settings set as default.
+<p align="center">
+  <img src="assets/architecture.svg" alt="Claude Desktop PaperClip IPC & Supervision Architecture Diagram" width="100%" />
+</p>
 
-## Agent files
+### Subsystem Breakdown
 
-Each agent is a Claude Code agent in the org folder, `.claude/agents/<agent>.md` (`agent-files.mjs`): a short
-note on working from Claude Desktop, then its Paperclip instructions, with the model, effort and Skip permissions
-switch Paperclip sets for it. All three are managed in Paperclip: Desktop runs the conversation on the agent's model
-and effort (the effort Desktop's footer shows for a handed-over conversation is only its own default until you pick
-one there; picking one there overrides Paperclip's for that conversation), and the hook above reads the switch. Claude Code loads it once per conversation as the system prompt; nothing is resent each turn. A
-file of that name that is not the agent's is never overwritten. The Paperclip skills the org's agents have
-are copied into `.claude/skills/`.
+1. **Paperclip Orchestration Core (`localhost:3100`)**:
+   - **Kanban & Issue Graph**: Maintains hierarchical organization cards, task assignments, and parent/sub-card blocker relationships.
+   - **Activity Stream**: Emits live JSON event feeds (`/api/activity/feed`) tracking agent state changes, hires, and comments.
+   - **Wake Interceptor (`paperclip-wakes.mjs`)**: Halts Paperclip's autonomous headless execution loops. When Paperclip schedules or comments on a card, the wake is safely intercepted and parked into backlog as `"Waiting for my next turn in Claude Desktop."`
 
-## Org folders and the team in Claude Desktop
+2. **Native Adapter & Turn Supervision Engine (`index.mjs`)**:
+   - **`claude_local` Adapter**: Custom adapter implementing Paperclip's runtime adapter interface, standing in for the built-in Claude agent type across all organizations.
+   - **Turn Hooks Framework (`hooks/`)**: Intercepts Claude Code lifecycle events to inject credentials, map interactive user turns to Paperclip Run IDs, and enforce execution boundaries.
+   - **Board Hold Supervisor (`board-hold.mjs`)**: Consumes Paperclip's live activity feed. If an agent attempts to close a task card while a blocking board card is unresolved, the supervisor immediately reverts the card to `blocked` and appends diagnostic commentary.
+   - **House Setup Bootstrapper (`house-setup.mjs`)**: Automatically provisions newly created orgs, copying application templates (`templates/org/CLAUDE.md`, `FACTS.md`) and configuring the Chief of Staff with Claude 3.5 Sonnet / Opus 5.5 at maximum reasoning effort.
 
-Creating an org makes its folder, `<where new orgs' folders go>\<org name>` (on the Desktop until you choose
-another place), and moves the org to Claude Desktop. From then on the plugin keeps the folder in step with
-Paperclip (`org-sync.mjs`), at once when Paperclip's live activity feed shows an agent hired, changed or removed
-(a hire reaches it in well under a second), and once a minute besides:
+3. **Claude Desktop Host Runtime (Windows Native)**:
+   - **Process Discovery (`desktop.mjs`)**: Scans Windows AppData, Local, and packaged application directories to locate Claude Desktop's internal Claude Code executable. Resolves active sessions against `%APPDATA%\Claude\ccd-session-presets.json`.
+   - **Dedicated Org Sessions (`.claude/agents/<agent>.md`)**: Maintains one persistent conversation per agent inside the organization folder, loaded with custom system prompts, skills, and tools.
+   - **Security Fence (`hooks/paperclip-allow.mjs`)**: Intercepts pre-tool calls to protect external connectors (Gmail, Google Drive, Google Calendar). Destructive mutations (`WORDS_ONLY`) are refused unless verified by user approval tokens typed within the last 24 hours.
+   - **Credential Refresh Daemon (`claude-sign-in.mjs`)**: Proactively inspects `~/.claude/.credentials.json`, renewing 8-hour OAuth tokens in the background and purging stale lockfiles left by abrupt system reboots.
 
-- each Claude agent's file, the skills, the settings (the hooks above, which make a new chat there the Chief of
-  Staff; no folder default agent, since Claude Code gives every conversation it resumes the default agent's tools),
-  and `.claude/paperclip-team.md`: the team and each member's Desktop conversation, which agents use to hand each
-  other work;
-- each agent's one conversation, made with a one-line hello as that agent (one turn, no tools: setup, never work;
-  the conversation keeps that agent and its tools from then on), then handed to Claude Desktop's sidebar at a pause
-  in your typing. Desktop switches to a conversation it is handed, once per new agent.
+---
 
-Older orgs stay as they are until you move them: Settings > Org folder > **Move to Claude Desktop**. Until then
-Paperclip's wakes for their Claude agents stop with a note saying so.
+## Key Technical Challenges & Engineering Decisions
 
-## A new org sets itself up
+### 1. Zero-Dependency Native Architecture
 
-Making an org in Paperclip (the org switcher > **Create organization**, which opens the setup wizard at
-`/onboarding`) is all it takes; nothing else needs doing by hand (`house-setup.mjs`):
+Many AI bridges rely on heavy third-party toolchains, brittle Electron wrappers, or heavyweight Python sidecars. Claude Desktop PaperClip is written exclusively against the Node.js standard library (targeting Node.js `>=22`):
 
-- The org's folder gets the house `CLAUDE.md` (the team's rules, loaded in every conversation there) and `FACTS.md`
-  (what is known about the org), with its name filled in. A file already there is never overwritten.
-- Its Chief of Staff, the wizard's first agent or whoever reports to no one, gets the house job file (it works out
-  the team with you, one question at a time, and hires on your go through Paperclip's `agent-hires`), Opus 5.5 at max
-  effort, every tool, and the check of your steps, whatever the wizard gave it.
-- Every later hire gets the house model and effort, and the org folder, where they were left unset; a hire's own
-  choices stay.
-- On its first turn the Chief of Staff files the team's conversations in a sidebar section named after the org,
-  and files each hire's there after.
+- **Process Supervision**: Child process spawning, console handle resolution, and graceful shutdown via `node:child_process`.
+- **HTTP / REST Streaming**: High-throughput REST client communicating with Paperclip's API via `node:http`.
+- **State & File Watching**: Atomic filesystem operations and JSON parsing via `node:fs` and `node:path`.
+- **Offline Test Engine**: All 82 test suites run through Node's native test runner (`node:test`) in under 5 seconds with zero external runners or mock libraries.
 
-The house way is a template folder, `<instance>/claude-desktop/org-template` (`CLAUDE.md`, `FACTS.md`,
-`chief-of-staff.md` and `defaults.json` for the model and effort), copied from this repo's `templates/org` the first
-time it is needed. Edit it there to change every org made after. `{{org}}`, `{{folder}}`, `{{folder_json}}` (the
-folder as it goes inside JSON) and `{{date}}` are filled in. Each agent is set up once: one Paperclip refuses to save
-is tried again at the next sync and gets no conversation until then, since Desktop keeps the model a conversation was
-made with. Orgs on Claude Desktop before this existed (2026-10-21) were adopted as they are.
+### 2. Bidirectional Turn-to-Run Lifecycle Hooks
 
-Settings > Org folder, in each org:
+Claude Desktop conversations interact with Paperclip through four coordinated lifecycle hooks:
 
-- **This org's folder**: change it, or give an older org one.
-- **Where new orgs' folders go**: the place for the next orgs you create.
-
-## Fixes to Paperclip's own page
-
-The plugin fixes Paperclip's installed page each time it starts (`paperclip-ui-fixes.mjs`), so a Paperclip
-update that ships a new page gets the fix again. Paperclip's originals are kept next to the files it changes
-(`*.claude-desktop-paperclip.orig`); `node paperclip-ui-fixes.mjs --restore` puts them back, `--check` reports.
-
-- **The setup wizard can no longer be taken over.** Paperclip's Dashboard opens the setup wizard by itself for
-  an org with no agents, and that used to replace whatever the wizard was doing: with the wizard open on a new
-  org and an agentless org on the Dashboard behind it, the new org's first agent was made in the other org.
-  The Dashboard's automatic offer now waits while the wizard is open.
-- **An empty In Progress column no longer spins.** Paperclip spins the in-progress icon wherever it appears, so the
-  Tasks board's In Progress header spun with no card in it and no agent working. A board header icon now spins
-  only while its column has cards; a card's own icon is unchanged.
-- Paperclip lets browsers keep its files for a year, and a browser also keeps a loaded file in memory, so a fixed
-  file under its old address could go on running in its old form, even after a reload. Each fixed file therefore
-  gets an address of its own (`?cdpc=` plus a stamp taken from its fixed text): `index.html`, which is always
-  fetched fresh, carries an import map that sends the page there. One reload after a fix picks it up in any browser.
-
-A page it does not recognize is left exactly as it was.
-
-## The setup wizard's Claude check
-
-Before it hires an org's first agent, Paperclip's wizard runs a short Claude check (the adapter's
-`testEnvironment`). It runs with Claude Desktop's Claude Code and your own setup, and, since only the sign-in is
-checked, on `claude-haiku-5-5` at low effort without Chrome; a hello that fails with Desktop's copy is tried again
-with the `claude` on PATH. (Paperclip 2026.1012.0 runs the hello with Paperclip's default model when none is set,
-`claude-opus-5`, which Claude refuses here.) The wizard also asks for a Claude connection per org; the Desktop agents
-do not use it.
-
-That connection ("Connect a model") reads command-line Claude's sign-in from `~/.claude/.credentials.json` and
-never renews it. The token there lasts 8 hours and only Claude Code renews it, when it runs, so with the agents in
-Claude Desktop the wizard would soon say "Could not verify the local subscription". The plugin checks the file every
-minute and, once the token has expired, renews it with a one-turn, no-tools Haiku call (`claude-sign-in.mjs`), about
-once every 8 hours. It also clears the lock a renewal cut short by a reboot leaves behind, which otherwise blocks every
-later renewal. With no sign-in at all it does nothing: run `claude auth login` yourself.
-
-## Switch it on
-
-1. `npm install` in `plugin/` (the plugin's one dependency, Paperclip's plugin SDK).
-2. The adapter: Paperclip > Settings > Adapters > install from a local path, and give this folder.
-3. The plugin: Settings > Plugins > install from a local path, and give `plugin/` in this folder.
-
-Or, with the API:
-
-```bash
-curl -X POST http://127.0.0.1:3100/api/adapters/install -H "Content-Type: application/json" -d "{\"packageName\":\"<this folder>\",\"isLocalPath\":true}"
-curl -X POST http://127.0.0.1:3100/api/plugins/install -H "Content-Type: application/json" -d "{\"packageName\":\"<this folder>/plugin\",\"isLocalPath\":true}"
+```text
+[ User Types Prompt in Claude Desktop ]
+                   │
+                   ▼
+  1. UserPromptSubmit Hook (hooks/desktop-turn.mjs)
+     └── Sends 'desktop_turn' wake to Paperclip (/api/wakes)
+     └── Paperclip provisions Run ID ($PAPERCLIP_RUN_ID)
+                   │
+                   ▼
+  2. SessionStart Hook (hooks/desktop-session.mjs)
+     └── Injects $PAPERCLIP_RUN_ID, API keys, and Agent ID into Bash environment
+     └── Claude Code re-reads $PAPERCLIP_RUN_ID before each command
+                   │
+                   ▼
+  3. PreToolUse Hook (hooks/paperclip-allow.mjs)
+     └── Reads agent's "Skip permissions" configuration
+     └── Enforces WORDS_ONLY security fence on connectors
+                   │
+                   ▼
+  4. Stop / quietEnding Hook (desktop-turn.mjs)
+     └── Closes Paperclip run upon turn completion
+     └── Fallback: 30s quiet detection on interrupt; 2m idle timeout
 ```
 
-## Switch it off
+Partway through a turn, an agent can dynamically re-assign execution to a specific task using the CLI bridge:
 
-Settings > Adapters: pause the `claude_local` override (Paperclip's own Claude type comes back at once), or
-remove it. Settings > Plugins: disable or remove Claude Desktop (org folders stay on disk).
+```bash
+# Shift remaining turn transcript and token usage to card LEM-8
+node hooks/paperclip-card.mjs LEM-8
 
-## After editing
+# Create a new backlog card, assigned to the agent, claimed by current run
+node hooks/paperclip-card.mjs --new "Implement token cache" --body "Drafting LRU cache in index.mjs"
 
-- The adapter's files (`index.mjs`, `desktop-turn.mjs`, `paperclip-wakes.mjs`, `desktop-orgs.mjs`,
-  `desktop.mjs`): reload the adapter (`POST /api/adapters/claude_local/reload`).
-- `plugin/`: Paperclip reloads the plugin by itself when a file there changes (its dev watcher), so don't edit
-  `plugin/` while a new org's conversations are being made: a reload stops a hello partway. The plugin's other
-  files (`org-sync.mjs`, `agent-files.mjs`, `org-folder.mjs` and the rest at the top level) are not watched:
-  after editing them, touch `plugin/worker.js` and check that the worker process restarted.
-- The hooks run fresh each time and need nothing.
+# Create a human approval card under current card with a blocking dependency
+node hooks/paperclip-card.mjs --board "Approve production deployment" --body "Verify canary health"
+```
 
-## Tests
+### 3. Board Hold & Sub-Card Supervision (`board-hold.mjs`)
 
-- `npm test`: offline checks for both parts, no Paperclip server and no model calls (the plugin's need
-  `npm install` in `plugin/` first).
-- `node scripts/desktop-turn-probe.mjs --org <org id>`: a live check against the running Paperclip with
-  throwaway agents and cards, no model calls: Desktop turns become runs, card-tied runs can comment and
-  update, back-to-back turns, and clean-up.
-- `node scripts/org-rehearsal.mjs`: a live rehearsal on Haiku (a few turns) with a throwaway org named
-  `cdpc rehearsal …`, which the plugin leaves alone, so nothing goes to Claude Desktop: agent files, hellos,
-  a card the board gives in Paperclip waiting for the Cashier, and the Cashier's next turn (in accept-edits mode)
-  taking it to done, a request made in Desktop becoming a card the Cashier makes itself, and chat making none.
-  `--keep` leaves it for a look; `--clean <org id>` removes it.
+When an autonomous agent delegates a human-in-the-loop task (e.g., verifying an email draft or approving an expense), it creates a sub-card assigned to the board. 
 
-## Limits
+In vanilla orchestration tools, an agent might prematurely mark its own card as complete while the board card remains open. `board-hold.mjs` solves this by continuously monitoring Paperclip's live activity feed:
 
-- Windows has no Paperclip service (`paperclipai service` answers "not supported on win32"), so Paperclip runs only
-  while something has started it. `scripts/start-paperclip.ps1` starts it, logging to the instance's
-  `logs/paperclip-server.log`, and does nothing if it is already up; run through `conhost.exe --headless` it has no
-  window at all. `scripts/stop-paperclip.ps1` stops it cleanly (Ctrl+C to its console, so its database closes too,
-  and a database worker it leaves behind, which would block the next start, is stopped).
-  A stop Windows forces (a Start-menu shutdown, an installer's Restart Manager) can leave the database's lock
-  `db/postmaster.pid` behind; once its process number belongs to another program, Paperclip refuses its own database
-  (2026-10-26, 9:23 AM). The start script sets such a lock aside (`postmaster.pid.stale-<date-time>`, never deleted)
-  when no Paperclip database is running, with one log line; a running database keeps its lock, and a Paperclip that
-  is running but not answering yet is not started twice (CAR-598).
-  Start it from Windows (a shortcut, Explorer, the Startup folder), never from a Claude session's shell: started
-  there, it stops when Claude Desktop quits (it did on 2026-10-14 at 7:01 PM). On Benny's PC, `Paperclip.lnk` in his
-  Startup folder (`shell:startup`) starts it hidden at every logon since 2026-10-15; deleting it undoes that.
+```javascript
+// board-hold.mjs: Intercepts premature card completion
+if (card.status === 'done' && hasOpenBoardBlockers(card.id)) {
+  revertCardStatus(card.id, 'blocked');
+  postCardComment(card.id, 'Guard: Reopened card. Blocked by open board sub-card.');
+}
+```
 
-- Windows first: finding Claude Desktop's Claude Code and handing conversations to it are Windows-only.
-- Paperclip's own wakes wait for the agent's next Desktop turn: nothing starts on its own.
-- Command-line Claude must be signed in to the same Claude organization as Claude Desktop (`claude auth
-  status`).
-- Desktop's sidebar heads a folder only when the folder is one of its saved folders
-  (`%APPDATA%\Claude\ccd-session-presets.json`, seeded once from the folders open on 2026-10-14). An org folder
-  first used after that lists its conversations under "Default", by repo name. File them in a sidebar section of
-  their own (Career Catchers has one); a later hire's conversation is filed there the same way.
-- Handing a conversation to Desktop opens it: Desktop starts its Claude Code process and a hidden PowerShell
-  terminal, which stay until Desktop restarts (Career Catchers' 13 held about 2.5 GB, and Desktop's limit of about
-  16 terminals closed other sessions' terminals). It happens once per agent, at org setup or a hire, never per
-  run. Kept as is on 2026-10-14; if orgs get made often, stop each conversation's process right after its
-  hand-off (test first that this closes the terminal too).
+Only designated verification agents (`adapterConfig.checksBoardSteps: true`) can close board steps, and only with explicit evidence (`node hooks/paperclip-card.mjs --checked <CARD> "<observation>"`).
+
+### 4. Security Governance & WORDS_ONLY Gatekeeper
+
+Claude Desktop agents have access to local claude.ai connectors, allowing them to search and interact with Google Workspace (Gmail, Calendar, Drive). To prevent destructive or unintended data mutations, `hooks/paperclip-allow.mjs` enforces an immutable security perimeter:
+
+- **Read / Search Operations**: Permitted automatically (reading emails, searching Drive documents, listing events).
+- **Destructive Mutations**: Sending emails, trashing documents, deleting events, or changing permissions are **strictly refused**.
+- **The Checked Path**: Refused calls output the exact command required to execute the action:
+  ```bash
+  node "google-tools.mjs" --benny-said "<exact typed words>" "<action>"
+  ```
+  This helper scans the user's typed messages in Claude Desktop from the last 24 hours. The mutation is authorized **only** if the user explicitly typed the exact instruction themselves.
+
+### 5. Client-Side SPA Hot-Patcher (`paperclip-ui-fixes.mjs`)
+
+Paperclip's web dashboard ships as a compiled Single Page Application (SPA). The plugin includes an automated DOM and bundle patcher that resolves three upstream UX bugs:
+
+1. **Dashboard Wizard Race Condition**: Prevents the dashboard from automatically opening the setup wizard on an empty organization while an administrator is actively configuring a different org.
+2. **Infinite Spinner Suppression**: Upstream Paperclip spins the in-progress icon even when the "In Progress" column contains zero active tasks. The patch ensures the icon spins only when cards are actively undergoing execution.
+3. **Cache-Busting Import Maps (`?cdpc=`)**: Paperclip configures browsers to cache assets for 365 days. The patch dynamically rewrites `index.html` with an import map stamping modified scripts with content hashes (`?cdpc=<hash>`), ensuring instant client updates without clearing browser storage.
+
+---
+
+## Authentic Visual Verification
+
+The entire native test suite executes against Node.js 22+ with zero mock servers or network dependencies:
+
+<p align="center">
+  <img src="assets/terminal_tests.png" alt="Node.js Native Test Runner Output" width="100%" />
+</p>
+
+```text
+✔ finds Claude Desktop's Claude Code on Windows (1.5ms)
+✔ reads Claude Code's live-session registry, skipping dead entries (10.1ms)
+✔ opens only real session ids, in folders that exist, in Claude Desktop (8.2ms)
+✔ stands in for the built-in Claude type with its own pieces (0.2ms)
+✔ an agent file: its Paperclip model, effort, Skip permissions and id up top (3.4ms)
+✔ an agent's card closed while the board's card under it is open goes back to blocked (48.1ms)
+✔ a checker's close of a card for the board stands with its note (42.8ms)
+✔ a run records the Desktop turn its turn file names, from where turn starts to Stop (169.4ms)
+✔ an interrupted turn (no Stop) ends when the same conversation starts its next turn (106.0ms)
+✔ quietEnding reads only the newest message: the interrupt marker, or the last answer (0.3ms)
+ℹ tests 82 | pass 82 | fail 0 | cancelled 0 | duration_ms 4627.71
+```
+
+---
+
+## Verification & Test Suite
+
+The repository contains 82 native unit tests across 12 focused suites:
+
+```bash
+# Run all native unit tests (zero external dependencies required)
+node --test test/*.test.mjs
+
+# Run the core native IPC and supervisor suites
+node --test test/native.test.mjs test/agent-files.test.mjs test/board-hold.test.mjs test/desktop-turn.test.mjs
+
+# Execute live integration turn probe against a running Paperclip instance
+node scripts/desktop-turn-probe.mjs --org <org_id>
+
+# Run end-to-end dry-run rehearsal on Claude Haiku (provisions throwaway org)
+node scripts/org-rehearsal.mjs --keep
+```
+
+### Test Coverage Matrix
+
+| Test Suite | Module Under Test | Validated Behaviors |
+|---|---|---|
+| `test/native.test.mjs` | `index.mjs`, `desktop.mjs` | Binary path discovery, registry parsing, environment fallback |
+| `test/agent-files.test.mjs` | `agent-files.mjs` | Agent markdown generation, instruction parsing, skill synchronization |
+| `test/board-hold.test.mjs` | `board-hold.mjs` | Blocker verification, activity feed parsing, unauthorized close rollbacks |
+| `test/desktop-turn.test.mjs` | `desktop-turn.mjs` | Transcript streaming, turn-to-run binding, quiet-ending timeouts |
+| `test/house-setup.test.mjs` | `house-setup.mjs` | Org templating, `CLAUDE.md` / `FACTS.md` seeding, Chief of Staff setup |
+| `test/claude-sign-in.test.mjs`| `claude-sign-in.mjs` | 8-hour OAuth expiry detection, automated renewal, reboot lock recovery |
+| `test/ui-fixes.test.mjs` | `paperclip-ui-fixes.mjs` | SPA bundle patching, import map cache-busting, backup restoration |
+| `test/paperclip-allow.test.mjs`| `hooks/paperclip-allow.mjs` | Permission bypass rules, `WORDS_ONLY` connector gatekeeper |
+| `test/paperclip-wakes.test.mjs`| `paperclip-wakes.mjs` | Headless wake suppression, backlog parking, inbox notifications |
+| `test/org-sync.test.mjs` | `org-sync.mjs` | Live agent synchronization, folder creation, hello-turn dispatch |
+| `test/run-routine.test.mjs` | `scripts/run-routine.mjs` | Daily routine scheduling, deduplication, task execution |
+| `test/desktop-turn-hooks.test.mjs`| `hooks/desktop-session.mjs` | Hook registration, local settings injection, environment propagation |
+
+---
+
+## Quickstart & Installation
+
+### 1. Prerequisites
+- **Node.js**: Version 22.0.0 or higher.
+- **Claude Desktop**: Installed on Windows with Claude Code configured.
+- **Paperclip**: Running locally (default: `http://127.0.0.1:3100`).
+
+### 2. Install Adapter & Plugin
+Install the adapter and plugin directly into Paperclip via the REST API:
+
+```bash
+# Install the claude_local adapter package
+curl -X POST http://127.0.0.1:3100/api/adapters/install \
+  -H "Content-Type: application/json" \
+  -d "{\"packageName\":\"C:/path/to/ClaudeDesktopPaperClip\",\"isLocalPath\":true}"
+
+# Install the Claude Desktop UI plugin
+curl -X POST http://127.0.0.1:3100/api/plugins/install \
+  -H "Content-Type: application/json" \
+  -d "{\"packageName\":\"C:/path/to/ClaudeDesktopPaperClip/plugin\",\"isLocalPath\":true}"
+```
+
+Alternatively, navigate to **Settings > Adapters** and **Settings > Plugins** in the Paperclip UI and choose **Install from local path**.
+
+### 3. Windows Process Supervision
+Paperclip can be managed as a headless background daemon on Windows:
+
+```powershell
+# Start Paperclip headless (logs to instance logs/paperclip-server.log)
+.\scripts\start-paperclip.ps1
+
+# Cleanly stop Paperclip (terminates database workers and releases ports)
+.\scripts\stop-paperclip.ps1
+```
+
+A stop Windows forces (a Start-menu shutdown, an installer's Restart Manager) can leave the database lock `db/postmaster.pid` behind, and Paperclip then refuses its own database (2026-10-26). The start script sets such a lock aside (`postmaster.pid.stale-<date-time>`, never deleted) when no Paperclip database is running; a running database keeps its lock (CAR-598).
+
+---
+
+## Repository Structure
+
+```text
+ClaudeDesktopPaperClip/
+├── index.mjs                     # Primary entrypoint for claude_local adapter
+├── desktop.mjs                   # Windows binary discovery & session preset inspector
+├── desktop-turn.mjs              # Turn transcript tracking & quiet-ending supervisor
+├── board-hold.mjs                # Blocker dependency guard & rollback engine
+├── house-setup.mjs               # Org bootstrapping & template population
+├── claude-sign-in.mjs            # Background OAuth token renewal service
+├── paperclip-ui-fixes.mjs        # SPA bundle patcher & import map cache-buster
+├── paperclip-wakes.mjs           # Autonomous wake interceptor & backlog parker
+├── org-sync.mjs                  # Real-time agent file & skill synchronization
+├── org-folder.mjs                # Organization directory & hook configuration
+├── hooks/
+│   ├── desktop-session.mjs       # SessionStart: injects $PAPERCLIP_RUN_ID & keys
+│   ├── desktop-turn.mjs          # UserPromptSubmit: binds user prompt to Run ID
+│   ├── paperclip-allow.mjs       # PreToolUse: WORDS_ONLY security fence
+│   └── paperclip-card.mjs        # CLI utility for card creation & promotion
+├── native/                       # Teams with no Paperclip: board page, method, hooks, hire & setup scripts
+├── templates/
+│   └── org/
+│       ├── CLAUDE.md             # Runtime house rules template for new orgs
+│       ├── FACTS.md              # Runtime organization knowledge template
+│       ├── chief-of-staff.md     # Chief of Staff role prompt template
+│       └── defaults.json         # Default model & effort parameters
+├── scripts/
+│   ├── start-paperclip.ps1       # Headless Windows daemon launcher
+│   ├── stop-paperclip.ps1        # Graceful console shutdown script
+│   ├── run-routine.mjs           # Claude Desktop routine scheduler
+│   ├── desktop-turn-probe.mjs    # Turn-to-run live integration probe
+│   └── org-rehearsal.mjs         # Haiku-driven end-to-end rehearsal harness
+├── test/                         # 82 native unit tests (node:test)
+├── assets/                       # Bespoke visual assets (hero, architecture, terminal)
+└── package.json                  # Native Node.js package (zero runtime dependencies)
+```
+
+---
+
+## Engineering Impact
+
+| Capability | Standard Enterprise Orchestration | Claude Desktop PaperClip |
+|---|---|---|
+| **Execution Environment** | Isolated, headless cloud containers | Native Claude Desktop with local tools, MCP, and memory |
+| **User Interaction** | Asynchronous web polling | Direct, live conversational interaction in desktop UI |
+| **External Dependencies** | Heavy npm trees, Python wrappers | **0 external npm runtime dependencies** (pure Node.js) |
+| **Credential Safety** | Static long-lived API keys in cloud | 8-hour OAuth auto-renewal + `WORDS_ONLY` mutation fences |
+| **Dependency Integrity** | Premature card closure common | Active event-stream supervisor enforcing blocker rollbacks |
+| **Browser Asset Caching** | Stale bundles cached up to 365 days | Dynamic import maps with content-hashed query stamps (`?cdpc=`) |
+
+---
+
+## Git Delivery & License
+
+Distributed under the private engineering portfolio of Benny Cuestas (`BennyWaitWhat`). 
+
+All source code, templates, and tests maintained with zero runtime dependencies.

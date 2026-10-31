@@ -1,0 +1,184 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 740" width="1200" height="740" style="background:#0d1117; display:block;">
+  <defs>
+    <linearGradient id="blueGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1f6feb" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#1f6feb" stop-opacity="0.05"/>
+    </linearGradient>
+    <linearGradient id="purpleGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#8957e5" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#8957e5" stop-opacity="0.05"/>
+    </linearGradient>
+    <linearGradient id="greenGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#238636" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#238636" stop-opacity="0.05"/>
+    </linearGradient>
+    <marker id="arrowBlue" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 8 5 L 0 9 z" fill="#58a6ff"/>
+    </marker>
+    <marker id="arrowPurple" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 8 5 L 0 9 z" fill="#bc8cff"/>
+    </marker>
+    <marker id="arrowGreen" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 8 5 L 0 9 z" fill="#3fb950"/>
+    </marker>
+    <marker id="arrowOrange" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 8 5 L 0 9 z" fill="#f0883e"/>
+    </marker>
+  </defs>
+
+  <!-- Container Box -->
+  <rect x="15" y="15" width="1170" height="710" rx="14" fill="#0d1117" stroke="#30363d" stroke-width="1.5"/>
+
+  <!-- Header Banner -->
+  <rect x="15" y="15" width="1170" height="60" rx="14" fill="#161b22"/>
+  <rect x="15" y="60" width="1170" height="15" fill="#161b22"/>
+  <line x1="15" y1="75" x2="1185" y2="75" stroke="#30363d" stroke-width="1.5"/>
+
+  <!-- Window Dots -->
+  <circle cx="42" cy="45" r="6" fill="#f85149"/>
+  <circle cx="62" cy="45" r="6" fill="#d29922"/>
+  <circle cx="82" cy="45" r="6" fill="#2ea043"/>
+
+  <!-- Title -->
+  <text x="110" y="50" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="16" font-weight="700" fill="#f0f6fc" letter-spacing="0.5">CLAUDE DESKTOP PAPERCLIP :: NATIVE IPC &amp; SUPERVISION ENGINE</text>
+  <rect x="940" y="32" width="220" height="26" rx="13" fill="#21262d" stroke="#30363d"/>
+  <text x="1050" y="49" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="600" fill="#58a6ff" text-anchor="middle">ZERO EXTERNAL RUNTIME DEPS</text>
+
+  <!-- Column 1: Paperclip Core -->
+  <rect x="35" y="95" width="345" height="535" rx="10" fill="#161b22" stroke="#1f6feb" stroke-width="1.5"/>
+  <rect x="35" y="95" width="345" height="38" rx="10" fill="url(#blueGlow)"/>
+  <rect x="35" y="125" width="345" height="8" fill="#161b22"/>
+  <line x1="35" y1="133" x2="380" y2="133" stroke="#30363d" stroke-width="1"/>
+  <text x="50" y="120" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="13" font-weight="700" fill="#58a6ff" letter-spacing="0.5">1. PAPERCLIP ECOSYSTEM</text>
+  <rect x="290" y="105" width="75" height="20" rx="10" fill="#1f6feb" fill-opacity="0.2"/>
+  <text x="327" y="119" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="10" font-weight="600" fill="#79c0ff" text-anchor="middle">SERVER / UI</text>
+
+  <!-- Paperclip Cards -->
+  <rect x="50" y="150" width="315" height="85" rx="8" fill="#21262d" stroke="#30363d"/>
+  <text x="65" y="172" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700" fill="#f0f6fc">Kanban Board &amp; Issue Graph</text>
+  <text x="65" y="192" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="11" fill="#8b949e">• Hierarchical cards: Agent tasks &amp; Board steps</text>
+  <text x="65" y="210" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="11" fill="#8b949e">• Sub-card blocker relations (unresolved dependencies)</text>
+  <text x="65" y="226" font-family="Consolas, SFMono-Regular, monospace" font-size="10" fill="#58a6ff">GET /api/issues/:id | PATCH /api/issues</text>
+
+  <rect x="50" y="250" width="315" height="85" rx="8" fill="#21262d" stroke="#30363d"/>
+  <text x="65" y="272" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700" fill="#f0f6fc">REST API &amp; Activity Feed</text>
+  <text x="65" y="292" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="11" fill="#8b949e">• Event streams: agent hire, status, comments</text>
+  <text x="65" y="310" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="11" fill="#8b949e">• Run lifecycle: execution transcripts &amp; tokens</text>
+  <text x="65" y="326" font-family="Consolas, SFMono-Regular, monospace" font-size="10" fill="#58a6ff">POST /api/runs | /api/activity/feed</text>
+
+  <rect x="50" y="350" width="315" height="75" rx="8" fill="#21262d" stroke="#30363d"/>
+  <text x="65" y="372" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700" fill="#f0f6fc">Wake Interception (No Rogue Headless)</text>
+  <text x="65" y="392" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="11" fill="#8b949e">• Paperclip automatic wakes halted cleanly</text>
+  <text x="65" y="410" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="11" fill="#8b949e">• Parked into backlog: "Waiting for Desktop turn"</text>
+
+  <rect x="50" y="440" width="315" height="80" rx="8" fill="#21262d" stroke="#30363d"/>
+  <text x="65" y="462" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700" fill="#f0f6fc">SPA Hot-Fixes (paperclip-ui-fixes)</text>
+  <text x="65" y="482" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="11" fill="#8b949e">• Import map hash query (?cdpc=) defeats cache</text>
+  <text x="65" y="500" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="11" fill="#8b949e">• Halts spinning icons; isolates setup wizard</text>
+
+  <rect x="50" y="535" width="315" height="80" rx="8" fill="#21262d" stroke="#30363d"/>
+  <text x="65" y="557" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700" fill="#f0f6fc">Desktop Turn Wake</text>
+  <text x="65" y="577" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="11" fill="#8b949e">• Triggered by user prompt in Claude Desktop</text>
+  <text x="65" y="595" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="11" fill="#8b949e">• Maps interactive Desktop session into Run ID</text>
+
+  <!-- Column 2: Native Adapter & Supervision Engine -->
+  <rect x="410" y="95" width="375" height="535" rx="10" fill="#161b22" stroke="#8957e5" stroke-width="1.5"/>
+  <rect x="410" y="95" width="375" height="38" rx="10" fill="url(#purpleGlow)"/>
+  <rect x="410" y="125" width="375" height="8" fill="#161b22"/>
+  <line x1="410" y1="133" x2="785" y2="133" stroke="#30363d" stroke-width="1"/>
+  <text x="425" y="120" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="13" font-weight="700" fill="#bc8cff" letter-spacing="0.5">2. NATIVE ADAPTER &amp; IPC ENGINE</text>
+  <rect x="690" y="105" width="80" height="20" rx="10" fill="#8957e5" fill-opacity="0.2"/>
+  <text x="730" y="119" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="10" font-weight="600" fill="#d2a8ff" text-anchor="middle">NODE.JS 22+</text>
+
+  <!-- Adapter Sub-blocks -->
+  <rect x="425" y="150" width="345" height="85" rx="8" fill="#21262d" stroke="#30363d"/>
+  <text x="440" y="172" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700" fill="#f0f6fc">claude_local Adapter (index.mjs)</text>
+  <text x="440" y="192" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="11" fill="#8b949e">• Replaces Paperclip built-in Claude type</text>
+  <text x="440" y="210" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="11" fill="#8b949e">• testEnvironment() verifies local Claude Code &amp; auth</text>
+  <text x="440" y="226" font-family="Consolas, SFMono-Regular, monospace" font-size="10" fill="#bc8cff">Zero npm runtime deps (pure node:fs, node:http)</text>
+
+  <rect x="425" y="250" width="345" height="95" rx="8" fill="#21262d" stroke="#30363d"/>
+  <text x="440" y="272" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700" fill="#f0f6fc">Turn Hooks Framework (hooks/)</text>
+  <text x="440" y="292" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="11" fill="#8b949e">• SessionStart: Injects $PAPERCLIP_RUN_ID &amp; API keys</text>
+  <text x="440" y="310" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="11" fill="#8b949e">• UserPromptSubmit: Binds user prompt to Paperclip Run</text>
+  <text x="440" y="328" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="11" fill="#8b949e">• Stop / quietEnding: Closes run on turn completion</text>
+
+  <rect x="425" y="360" width="345" height="75" rx="8" fill="#21262d" stroke="#30363d"/>
+  <text x="440" y="382" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700" fill="#f0f6fc">Board Hold Supervisor (board-hold.mjs)</text>
+  <text x="440" y="402" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="11" fill="#8b949e">• Detects unauthorized card closures in event feed</text>
+  <text x="440" y="420" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="11" fill="#8b949e">• Re-opens board blocker cards &amp; sets agent to blocked</text>
+
+  <rect x="425" y="450" width="345" height="75" rx="8" fill="#21262d" stroke="#30363d"/>
+  <text x="440" y="472" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700" fill="#f0f6fc">House Setup (house-setup.mjs)</text>
+  <text x="440" y="492" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="11" fill="#8b949e">• Seeds templates/org/CLAUDE.md &amp; FACTS.md</text>
+  <text x="440" y="510" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="11" fill="#8b949e">• Provisions Chief of Staff with Opus 5.5 max effort</text>
+
+  <rect x="425" y="540" width="345" height="75" rx="8" fill="#21262d" stroke="#30363d"/>
+  <text x="440" y="562" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700" fill="#f0f6fc">CLI Bridge (paperclip-card.mjs)</text>
+  <text x="440" y="582" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="11" fill="#8b949e">• --new: Creates card &amp; ties current turn's run</text>
+  <text x="440" y="600" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="11" fill="#8b949e">• --board: Spawns human approval card with blocker</text>
+
+  <!-- Column 3: Claude Desktop Runtime -->
+  <rect x="815" y="95" width="350" height="535" rx="10" fill="#161b22" stroke="#238636" stroke-width="1.5"/>
+  <rect x="815" y="95" width="350" height="38" rx="10" fill="url(#greenGlow)"/>
+  <rect x="815" y="125" width="350" height="8" fill="#161b22"/>
+  <line x1="815" y1="133" x2="1165" y2="133" stroke="#30363d" stroke-width="1"/>
+  <text x="830" y="120" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="13" font-weight="700" fill="#3fb950" letter-spacing="0.5">3. CLAUDE DESKTOP RUNTIME</text>
+  <rect x="1080" y="105" width="70" height="20" rx="10" fill="#238636" fill-opacity="0.2"/>
+  <text x="1115" y="119" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="10" font-weight="600" fill="#56d364" text-anchor="middle">WINDOWS</text>
+
+  <!-- Desktop Sub-blocks -->
+  <rect x="830" y="150" width="320" height="85" rx="8" fill="#21262d" stroke="#30363d"/>
+  <text x="845" y="172" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700" fill="#f0f6fc">Process &amp; Session Discovery</text>
+  <text x="845" y="192" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="11" fill="#8b949e">• Scans AppData / Local / packaged binary paths</text>
+  <text x="845" y="210" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="11" fill="#8b949e">• Reads ccd-session-presets.json session registry</text>
+  <text x="845" y="226" font-family="Consolas, SFMono-Regular, monospace" font-size="10" fill="#3fb950">desktop.mjs | Live handle resolution</text>
+
+  <rect x="830" y="250" width="320" height="85" rx="8" fill="#21262d" stroke="#30363d"/>
+  <text x="845" y="272" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700" fill="#f0f6fc">Dedicated Org Agent Sessions</text>
+  <text x="845" y="292" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="11" fill="#8b949e">• One conversation per agent in org folder</text>
+  <text x="845" y="310" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="11" fill="#8b949e">• Loaded from .claude/agents/&lt;agent&gt;.md</text>
+  <text x="845" y="326" font-family="Consolas, SFMono-Regular, monospace" font-size="10" fill="#3fb950">Chief of Staff + Specialists in Desktop UI</text>
+
+  <rect x="830" y="350" width="320" height="95" rx="8" fill="#21262d" stroke="#30363d"/>
+  <text x="845" y="372" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700" fill="#f0f6fc">Security Fence: WORDS_ONLY</text>
+  <text x="845" y="392" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="11" fill="#8b949e">• PreToolUse: intercepts Gmail / Drive / Calendar</text>
+  <text x="845" y="410" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="11" fill="#8b949e">• Blocks destructive calls without user 24h approval</text>
+  <text x="845" y="428" font-family="Consolas, SFMono-Regular, monospace" font-size="10" fill="#f85149">google-tools.mjs --benny-said token gate</text>
+
+  <rect x="830" y="460" width="320" height="75" rx="8" fill="#21262d" stroke="#30363d"/>
+  <text x="845" y="482" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700" fill="#f0f6fc">Credential Refresh Keep-Alive</text>
+  <text x="845" y="502" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="11" fill="#8b949e">• Renews 8h Claude credentials token in background</text>
+  <text x="845" y="520" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="11" fill="#8b949e">• Auto-clears stale reboot locks in .credentials.json</text>
+
+  <rect x="830" y="550" width="320" height="65" rx="8" fill="#21262d" stroke="#30363d"/>
+  <text x="845" y="572" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700" fill="#f0f6fc">Desktop UI Tools &amp; MCP</text>
+  <text x="845" y="592" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="11" fill="#8b949e">• Native MCP tools, file system access, terminal</text>
+  <text x="845" y="606" font-family="Consolas, SFMono-Regular, monospace" font-size="10" fill="#3fb950">mcp__ccd_session_mgmt__send_message</text>
+
+  <!-- Connectors / Directional Arrows -->
+  <!-- 1 to 2: Activity Stream & Wakes -->
+  <path d="M 365 292 L 420 292" fill="none" stroke="#58a6ff" stroke-width="2" marker-end="url(#arrowBlue)"/>
+  <!-- 2 to 1: Updates & Rollbacks -->
+  <path d="M 425 397 L 375 397" fill="none" stroke="#bc8cff" stroke-width="2" marker-end="url(#arrowPurple)"/>
+  <!-- 2 to 3: Environment Injection & Session Control -->
+  <path d="M 770 292 L 825 292" fill="none" stroke="#bc8cff" stroke-width="2" marker-end="url(#arrowPurple)"/>
+  <!-- 3 to 2: User Prompts & Tool Invocations -->
+  <path d="M 830 387 L 775 387" fill="none" stroke="#3fb950" stroke-width="2" marker-end="url(#arrowGreen)"/>
+
+  <!-- Footer Legend Bar -->
+  <line x1="15" y1="645" x2="1185" y2="645" stroke="#30363d" stroke-width="1.5"/>
+  <rect x="35" y="658" width="16" height="16" rx="4" fill="#1f6feb"/>
+  <text x="58" y="671" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="600" fill="#8b949e">Paperclip API &amp; Server Events</text>
+
+  <rect x="260" y="658" width="16" height="16" rx="4" fill="#8957e5"/>
+  <text x="283" y="671" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="600" fill="#8b949e">Native IPC &amp; Turn Hooks Supervision</text>
+
+  <rect x="525" y="658" width="16" height="16" rx="4" fill="#238636"/>
+  <text x="548" y="671" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="600" fill="#8b949e">Claude Desktop Runtime &amp; Security Fence</text>
+
+  <rect x="815" y="658" width="16" height="16" rx="4" fill="#f85149"/>
+  <text x="838" y="671" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="600" fill="#8b949e">Destructive Mutation Gatekeeper</text>
+
+  <text x="1165" y="671" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="700" fill="#58a6ff" text-anchor="end">82 NATIVE TESTS PASSING</text>
+</svg>
