@@ -80,8 +80,8 @@ Work that leaves the team, or that Benny will rely on (a letter, a form, a filin
 2. On approval, write its job file `.claude/agents/<agent>.md` (opening "You are <Name> at __ORG__'s team. You report to <boss>.", then "## Your job", "## How you work", "## Output bar" and "## Done", in simple English), then run:
    `node "__HIRE__" --folder "__FOLDER__" --agent <agent> --name "<Name>" --org "__ORG__"`
    It makes the member's own Claude Desktop conversation (a one-line hello, no work) and prints its id.
-3. Add `team/<agent>`: name, title, reportsTo, job, status active, conversation (`local_<id>`), agentFile, hiredAt, approval.
-4. File its conversation in the sidebar section "__ORG__" (ccd_sidebar: `move_sessions`).
+3. **File it the moment it prints**, before the next hire or anything else: move the conversation into the sidebar section "__ORG__" (ccd_sidebar: `move_sessions`, with the section's id from `list_sections`), then check that `list_sessions` shows its group as "__ORG__". Claude Desktop puts every new conversation in its general Sessions list, so until it is filed, Benny sees it outside the team. One member at a time: hire, file, then the next.
+4. Add `team/<agent>`: name, title, reportsTo, job, status active, conversation (`local_<id>`), agentFile, hiredAt, approval.
 5. Hand it its first card.
 
 ## On a schedule

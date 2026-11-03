@@ -58,6 +58,12 @@ if (process.argv[1] && path.resolve(fileURLToPath(import.meta.url)).toLowerCase(
       ? await openInDesktop(made.sessionId, folder, claude)
       : await handOffWhenQuiet(made.sessionId, folder, { open: (id, cwd) => openInDesktop(id, cwd, claude), maxWaitMs: 2 * 60_000 });
   }
-  process.stdout.write(`${JSON.stringify({ ...made, conversation: made.ok ? `local_${made.sessionId}` : null, desktop })}\n`);
+  const conversation = made.ok ? `local_${made.sessionId}` : null;
+  // Desktop lists a conversation it is handed in its general Sessions list, and only a Claude session can file it in
+  // the team's section (ccd_sidebar), so the output tells the caller to do that before anything else.
+  const next = conversation && desktop?.ok
+    ? `File ${conversation} in the sidebar section "${org}" now (ccd_sidebar move_sessions), then check that list_sessions shows its group as "${org}". Until then Benny sees it outside the team.`
+    : null;
+  process.stdout.write(`${JSON.stringify({ ...made, conversation, desktop, next })}\n`);
   process.exit(made.ok ? 0 : 1);
 }

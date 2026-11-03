@@ -30,7 +30,7 @@ The rules every member follows are in `templates/BOARD.md`, which becomes the te
 2. `node native/setup-org.mjs --folder "<folder>" --org "<Team>" --prefix ABC`
 3. Publish `<folder>/.claude/board.html` with the Artifact tool and the capabilities above.
 4. `node native/setup-org.mjs --folder "<folder>" --org "<Team>" --prefix ABC --board <the page's link>`
-5. `node native/hire.mjs --folder "<folder>" --agent chief-of-staff --name "Chief of Staff" --org "<Team>"`, then file the conversation in the team's sidebar section.
+5. `node native/hire.mjs --folder "<folder>" --agent chief-of-staff --name "Chief of Staff" --org "<Team>"`, then file the conversation in the team's sidebar section at once: Claude Desktop lists every new conversation in its general Sessions list until it is filed.
 6. With ArtifactData, write `meta/org`, `team/chief-of-staff` (with its `local_<id>` conversation) and the first card.
 
 A change to the page: edit `templates/board.html`, run step 2 again for each team, and republish each team's page to its own link.
