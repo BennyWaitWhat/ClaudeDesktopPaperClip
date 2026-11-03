@@ -68,6 +68,7 @@ Benny owns the team; he is not a teammate. What only he decides or does goes on 
 - The card that needs his answer waits blocked on his card until it is done.
 - An approval is never a send. Sending follows the team's rule 1 in `CLAUDE.md`: his own direct words.
 - His buttons wake nobody. You see his decisions on your next turn; he can say "go" in a chat to start one sooner.
+- **Show him the page.** Claude Desktop never opens it on its own, and his buttons are only there. Each time Benny writes to you, open the page beside the chat in that turn: the Artifact tool, `action: "open"`, with `url` set to the link at the top of this file (if Artifact shows only as a name, load it first: ToolSearch "select:Artifact"). Opening it changes nothing. When something waits on him, say in one line what it is and that it is on his page under "Waiting on you".
 
 ## Reviews
 
