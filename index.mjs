@@ -12,6 +12,7 @@
 //     which sees it first (paperclip-wakes.mjs). Claude is never started from Paperclip.
 // Paperclip's setup wizard still checks the Claude sign-in through testEnvironment before it hires the first agent;
 // that check runs Paperclip's own probe with Claude Desktop's Claude Code and your own setup.
+import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -50,19 +51,56 @@ const NOT_MOVED = {
   errorMessage: "This org's Claude agents work from Claude Desktop, and the org has not moved there yet: switch it over (ClaudeDesktopPaperClip), or pause the claude_local override in Settings > Adapters to use Paperclip's own Claude type.",
 };
 
+// A run's copy of its agent's folder. Before every run, Paperclip copies the agent's whole instructions folder to
+// <instance>/companies/<org>/agents/<agent>/file-sync/runs/<run>/live, for a provider process to use as its AGENT_HOME,
+// and deletes that copy only once the adapter reports the process stopped. Claude Desktop runs no process for
+// Paperclip, and the agents work in the instructions folder itself (AGENT_HOME, hooks/desktop-session.mjs). So
+// Paperclip marked every copy "unavailable" (nothing saved back) and kept it for good: 2,210 copies, 34 GB in two weeks
+// (2026-11-18). Benny: "Yes, fix it." Each run now removes its own copy when it ends. Nothing in Paperclip reads a
+// copy after its run. Reporting the stop instead would make Paperclip merge the copy back over the agent's newer
+// edits. The bundle setting stays on, so Paperclip's Instructions editor and a new hire's AGENTS.md stay as they are.
+const RUN_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Removes this run's copy of the agent folder: that one folder, and only if it holds just `live`. True if it went. */
+export async function dropRunCopy(ctx, { instance = instanceRoot() } = {}) {
+  const ids = [ctx?.agent?.companyId, ctx?.agent?.id, ctx?.runId].map((v) => String(v ?? ''));
+  if (!ids.every((id) => RUN_ID.test(id))) return false;
+  const [companyId, agentId, runId] = ids;
+  const dir = path.join(instance, 'companies', companyId, 'agents', agentId, 'file-sync', 'runs', runId);
+  const stat = await fsp.lstat(dir).catch(() => null);
+  if (!stat?.isDirectory()) return false; // gone already, or a link
+  const inside = await fsp.readdir(dir);
+  if (inside.length !== 1 || inside[0] !== 'live') return false;
+  await fsp.rm(dir, { recursive: true, force: true });
+  return true;
+}
+
 /** A run, with what it can do passed in (tests swap them). */
 export function createExecute({
   recordTurn = (ctx) => recordDesktopTurn(ctx, { dir: turnsDir(instanceRoot()) }),
   absorbWake = (ctx) => absorbPaperclipWake(ctx, { instance: instanceRoot(), api: apiUrl(ctx) }),
   movedToDesktop = (ctx) => isDesktopOrg(instanceRoot(), ctx.agent?.companyId),
+  dropCopy = (ctx) => dropRunCopy(ctx),
 } = {}) {
-  return async function execute(ctx) {
+  async function run(ctx) {
     if (ctx.context?.wakeReason === DESKTOP_TURN_REASON) return recordTurn(ctx);
     if (!movedToDesktop(ctx)) {
       await ctx.onLog('stderr', `[desktop] ${NOT_MOVED.errorMessage}\n`);
       return NOT_MOVED;
     }
     return absorbWake(ctx);
+  }
+  return async function execute(ctx) {
+    try {
+      return await run(ctx);
+    } finally {
+      // The run is over, so its copy of the agent folder goes. A copy that cannot go never changes the run's result.
+      try {
+        await dropCopy(ctx);
+      } catch (error) {
+        await Promise.resolve(ctx.onLog?.('stderr', `[desktop] this run's copy of the agent folder stays: ${error?.message ?? error}\n`)).catch(() => {});
+      }
+    }
   };
 }
 
