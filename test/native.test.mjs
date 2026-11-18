@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createExecute, createServerAdapter, createTestEnvironment, desktopClaudeCode, findPaperclipPackage, nativeConfig, THROWAWAY_ENV, windowsUserEnv } from '../index.mjs';
+import { createExecute, createServerAdapter, createTestEnvironment, desktopClaudeCode, dropRunCopy, findPaperclipPackage, nativeConfig, THROWAWAY_ENV, windowsUserEnv } from '../index.mjs';
 import { liveSessions, openInDesktop } from '../desktop.mjs';
 
 test("finds Paperclip's own Claude adapter", () => {
@@ -119,6 +119,127 @@ test('a Desktop-turn wake is recorded; every other wake waits for Desktop in an 
   assert.match(logs.join(''), /has not moved there yet/, 'the run log says why');
   assert.equal((await execute({ ...older, runId: 'r5', context: { wakeReason: 'desktop_turn' } })).summary, 'recorded');
   assert.deepEqual(seen, [['record', 'r1'], ['absorb', 'r2'], ['absorb', 'r3'], ['record', 'r5']], "an older org's cards are left as they are");
+});
+
+test("a run's own copy of the agent folder goes when the run ends, and nothing else", async () => {
+  const instance = fs.mkdtempSync(path.join(os.tmpdir(), 'cdp-run-copies-'));
+  try {
+    const co = '11111111-1111-4111-8111-111111111111';
+    const agent = '22222222-2222-4222-8222-222222222222';
+    const [r1, r2, r3] = ['33333333-3333-4333-8333-333333333333', '44444444-4444-4444-8444-444444444444', '55555555-5555-4555-8555-555555555555'];
+    const home = path.join(instance, 'companies', co, 'agents', agent);
+    const runs = path.join(home, 'file-sync', 'runs');
+    const put = (file, text = 'x') => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, text); };
+    put(path.join(home, 'instructions', 'AGENTS.md'), 'canonical');
+    put(path.join(home, 'file-sync', 'adopted.json'), '{"schema":"paperclip.agent-files.v1"}');
+    put(path.join(runs, r1, 'live', 'AGENTS.md'));
+    put(path.join(runs, r1, 'live', 'scratch', 'notes.md'));
+    put(path.join(runs, r2, 'live', 'AGENTS.md'));
+    put(path.join(runs, r3, 'live', 'AGENTS.md'));
+    put(path.join(runs, r3, 'owner.json'), '{}');
+    const ctx = (runId, id = agent, companyId = co) => ({ runId, agent: { id, companyId } });
+
+    assert.equal(await dropRunCopy(ctx(r1), { instance }), true);
+    assert.equal(fs.existsSync(path.join(runs, r1)), false, 'its own copy went');
+    assert.ok(fs.existsSync(path.join(runs, r2, 'live', 'AGENTS.md')), "another run's copy stays");
+    assert.equal(await dropRunCopy(ctx(r3), { instance }), false);
+    assert.ok(fs.existsSync(path.join(runs, r3, 'owner.json')), 'a copy holding anything but live stays');
+    assert.equal(await dropRunCopy(ctx(r1), { instance }), false, 'a copy already gone is fine');
+    assert.equal(await dropRunCopy(ctx('..'), { instance }), false, 'only real ids make a path');
+    assert.equal(await dropRunCopy(ctx(r2, 'a1', 'moved'), { instance }), false);
+    assert.equal(await dropRunCopy({}, { instance }), false);
+    assert.ok(fs.existsSync(path.join(runs, r2, 'live', 'AGENTS.md')));
+    assert.equal(fs.readFileSync(path.join(home, 'instructions', 'AGENTS.md'), 'utf8'), 'canonical', 'the agent folder itself is untouched');
+    assert.ok(fs.existsSync(path.join(home, 'file-sync', 'adopted.json')), "Paperclip's adoption marker stays");
+  } finally {
+    fs.rmSync(instance, { recursive: true, force: true });
+  }
+});
+
+test('every run removes its copy after its work, also when the work fails, and a copy that stays never changes the result', async () => {
+  const dropped = [];
+  const execute = createExecute({
+    recordTurn: async (ctx) => {
+      assert.ok(!dropped.includes(ctx.runId), 'the copy goes only after the run');
+      if (ctx.runId === 'boom') throw new Error('turn failed');
+      return { exitCode: 0, summary: 'recorded' };
+    },
+    absorbWake: async () => ({ exitCode: 0, summary: 'waiting' }),
+    movedToDesktop: (ctx) => ctx.agent.companyId === 'moved',
+    dropCopy: async (ctx) => { dropped.push(ctx.runId); if (ctx.runId === 'stuck') throw new Error('EBUSY'); return true; },
+  });
+  const logs = [];
+  const base = { agent: { id: 'a1', companyId: 'moved' }, config: {}, onLog: async (_s, chunk) => { logs.push(chunk); } };
+  assert.equal((await execute({ ...base, runId: 'r1', context: { wakeReason: 'desktop_turn' } })).summary, 'recorded');
+  assert.equal((await execute({ ...base, runId: 'r2', context: { wakeReason: 'issue_assigned' } })).summary, 'waiting');
+  assert.equal((await execute({ ...base, agent: { ...base.agent, companyId: 'not-yet' }, runId: 'r3', context: {} })).exitCode, 1);
+  await assert.rejects(execute({ ...base, runId: 'boom', context: { wakeReason: 'desktop_turn' } }), /turn failed/);
+  assert.equal((await execute({ ...base, runId: 'stuck', context: { wakeReason: 'desktop_turn' } })).summary, 'recorded');
+  assert.deepEqual(dropped, ['r1', 'r2', 'r3', 'boom', 'stuck']);
+  assert.match(logs.join(''), /copy of the agent folder stays: EBUSY/);
+
+  const brokenLog = createExecute({ recordTurn: async () => ({ exitCode: 0, summary: 'recorded' }), dropCopy: async () => { throw new Error('EBUSY'); } });
+  const result = await brokenLog({ ...base, runId: 'r6', context: { wakeReason: 'desktop_turn' }, onLog: () => { throw new Error('log broke'); } });
+  assert.equal(result.summary, 'recorded', 'not even a log that throws changes the result');
+});
+
+test("by default the copy is found where Paperclip puts it, under the instance PAPERCLIP_HOME names", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cdp-home-'));
+  const saved = { home: process.env.PAPERCLIP_HOME, id: process.env.PAPERCLIP_INSTANCE_ID };
+  process.env.PAPERCLIP_HOME = home;
+  process.env.PAPERCLIP_INSTANCE_ID = 'copies-test';
+  try {
+    const co = '66666666-6666-4666-8666-666666666666';
+    const agent = '77777777-7777-4777-8777-777777777777';
+    const run = '88888888-8888-4888-8888-888888888888';
+    // Paperclip's own layout: root = <instance>/companies/<co>/agents/<agent>/instructions, and the run's copy is
+    // path.join(path.dirname(root), 'file-sync', 'runs', runId, 'live') (agent-directory-working-copies.js).
+    const root = path.join(home, 'instances', 'copies-test', 'companies', co, 'agents', agent, 'instructions');
+    const live = path.join(path.dirname(root), 'file-sync', 'runs', run, 'live');
+    fs.mkdirSync(root, { recursive: true });
+    fs.writeFileSync(path.join(root, 'AGENTS.md'), 'canonical');
+    fs.mkdirSync(live, { recursive: true });
+    fs.writeFileSync(path.join(live, 'AGENTS.md'), 'copy');
+    const execute = createExecute({ recordTurn: async () => ({ exitCode: 0, summary: 'recorded' }) });
+    const result = await execute({ runId: run, agent: { id: agent, companyId: co }, config: {}, context: { wakeReason: 'desktop_turn' }, onLog: async () => {} });
+    assert.equal(result.summary, 'recorded');
+    assert.equal(fs.existsSync(path.dirname(live)), false, "the run's copy went");
+    assert.equal(fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8'), 'canonical');
+  } finally {
+    for (const [key, value] of [['PAPERCLIP_HOME', saved.home], ['PAPERCLIP_INSTANCE_ID', saved.id]]) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('a link at or inside a copy is never followed', async () => {
+  const instance = fs.mkdtempSync(path.join(os.tmpdir(), 'cdp-links-'));
+  try {
+    const co = '99999999-9999-4999-8999-999999999999';
+    const agent = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const [r1, r2, r3] = ['bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'];
+    const ctx = (runId) => ({ runId, agent: { id: agent, companyId: co } });
+    const outside = path.join(instance, 'outside');
+    fs.mkdirSync(outside);
+    fs.writeFileSync(path.join(outside, 'keep.txt'), 'keep');
+    const runs = path.join(instance, 'companies', co, 'agents', agent, 'file-sync', 'runs');
+    fs.mkdirSync(runs, { recursive: true });
+
+    fs.symlinkSync(outside, path.join(runs, r1), 'junction');
+    assert.equal(await dropRunCopy(ctx(r1), { instance }), false, 'a run folder that is a link is left alone');
+    fs.mkdirSync(path.join(runs, r2));
+    fs.symlinkSync(outside, path.join(runs, r2, 'live'), 'junction');
+    assert.equal(await dropRunCopy(ctx(r2), { instance }), false, 'a live that is a link is left alone');
+    fs.mkdirSync(path.join(runs, r3, 'live'), { recursive: true });
+    fs.writeFileSync(path.join(runs, r3, 'live', 'AGENTS.md'), 'x');
+    fs.symlinkSync(outside, path.join(runs, r3, 'live', 'linked'), 'junction');
+    assert.equal(await dropRunCopy(ctx(r3), { instance }), true);
+    assert.equal(fs.existsSync(path.join(runs, r3)), false, 'the copy with a link deep inside went');
+    assert.equal(fs.readFileSync(path.join(outside, 'keep.txt'), 'utf8'), 'keep', "a link's target is never touched");
+  } finally {
+    fs.rmSync(instance, { recursive: true, force: true });
+  }
 });
 
 test('stands in for the built-in Claude type with its own pieces', () => {
