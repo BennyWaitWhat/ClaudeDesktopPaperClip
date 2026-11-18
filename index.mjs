@@ -67,10 +67,10 @@ export async function dropRunCopy(ctx, { instance = instanceRoot() } = {}) {
   if (!ids.every((id) => RUN_ID.test(id))) return false;
   const [companyId, agentId, runId] = ids;
   const dir = path.join(instance, 'companies', companyId, 'agents', agentId, 'file-sync', 'runs', runId);
-  const stat = await fsp.lstat(dir).catch(() => null);
-  if (!stat?.isDirectory()) return false; // gone already, or a link
-  const inside = await fsp.readdir(dir);
-  if (inside.length !== 1 || inside[0] !== 'live') return false;
+  const isFolder = async (p) => (await fsp.lstat(p).catch(() => null))?.isDirectory() === true; // a link is not
+  if (!(await isFolder(dir))) return false; // gone already, or a link
+  const inside = await fsp.readdir(dir).catch(() => null);
+  if (!inside || inside.length !== 1 || inside[0] !== 'live' || !(await isFolder(path.join(dir, 'live')))) return false;
   await fsp.rm(dir, { recursive: true, force: true });
   return true;
 }
@@ -98,7 +98,9 @@ export function createExecute({
       try {
         await dropCopy(ctx);
       } catch (error) {
-        await Promise.resolve(ctx.onLog?.('stderr', `[desktop] this run's copy of the agent folder stays: ${error?.message ?? error}\n`)).catch(() => {});
+        try {
+          await ctx.onLog?.('stderr', `[desktop] this run's copy of the agent folder stays: ${error?.message ?? error}\n`);
+        } catch { /* the note is best effort */ }
       }
     }
   };
